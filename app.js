@@ -215,6 +215,35 @@
     sort: 'date-desc'
   };
 
+  // In-memory bank statement import session. This is intentionally never saved.
+  function createEmptyStatementImportState() {
+    return {
+      fileName: '',
+      rows: [],
+      rowNumbers: [],
+      headers: [],
+      headerRowIndex: 0,
+      delimiterLabel: '',
+      mapping: {
+        date: null,
+        description: null,
+        debit: null,
+        credit: null,
+        amount: null,
+        reference: null,
+        balance: null,
+        indicator: null
+      },
+      dateFormat: 'auto',
+      amountMode: '',
+      records: [],
+      selected: new Set(),
+      step: 1
+    };
+  }
+
+  let statementImport = createEmptyStatementImportState();
+
   // Pending confirm callback
   let pendingConfirmAction = null;
 
@@ -245,9 +274,11 @@
   function saveState() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      return true;
     } catch (err) {
       console.error('Failed to save state to localStorage:', err);
       showToast('Storage error: Unable to save locally.', 'error');
+      return false;
     }
   }
 
@@ -286,10 +317,11 @@
 
   function formatINR(val) {
     const num = Number(val) || 0;
+    const hasPaise = Math.abs(num - Math.round(num)) > 0.0001;
     // Format according to Indian Numbering System (Lakhs/Crores)
-    return '₹' + num.toLocaleString('en-IN', {
-      maximumFractionDigits: 0
-    });
+    return '₹' + num.toLocaleString('en-IN', hasPaise
+      ? { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+      : { maximumFractionDigits: 0 });
   }
 
   function formatDateReadable(dateStr) {
@@ -2044,6 +2076,810 @@
   }
 
   // =========================================================================
+  // 10B. BANK STATEMENT IMPORT (CSV)
+  // =========================================================================
+
+  function getStatementImportCore() {
+    return window.CentsibleStatementImport || null;
+  }
+
+  function formatFileSize(bytes) {
+    if (!Number.isFinite(bytes)) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function showStatementImportError(message) {
+    const errorEl = document.getElementById('statementImportError');
+    if (!errorEl) return;
+    errorEl.textContent = message;
+    errorEl.classList.remove('hidden');
+  }
+
+  function clearStatementImportError() {
+    const errorEl = document.getElementById('statementImportError');
+    if (!errorEl) return;
+    errorEl.textContent = '';
+    errorEl.classList.add('hidden');
+  }
+
+  function updateStatementParseMeta() {
+    const metaEl = document.getElementById('statementParseMeta');
+    if (!metaEl) return;
+    const dataRows = Math.max(0, statementImport.rows.length - statementImport.headerRowIndex - 1);
+    metaEl.textContent = `${dataRows} data row${dataRows === 1 ? '' : 's'} · ${statementImport.delimiterLabel} delimiter · header row ${statementImport.headerRowIndex + 1}`;
+  }
+
+  function updateStatementAmountHint() {
+    const hintEl = document.getElementById('statementAmountModeHint');
+    if (!hintEl) return;
+
+    const hints = {
+      separate: 'Debit values become expenses; credit values become income. Running balances are ignored.',
+      signed: 'Negative amounts become expenses; positive amounts become income.',
+      debit: 'Every row becomes an expense. Confirm this statement contains only spending.',
+      credit: 'Every row becomes income. Confirm this statement contains only credits.',
+      indicator: 'The mapped Dr/Cr column decides whether each row is an expense or income.'
+    };
+
+    hintEl.textContent = hints[statementImport.amountMode]
+      || 'We will not guess whether an unsigned amount is income or an expense.';
+  }
+
+  function fillStatementMappingSelect(selectId, field) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+
+    select.innerHTML = '';
+    const noneOption = document.createElement('option');
+    noneOption.value = '';
+    noneOption.textContent = 'Not used';
+    select.appendChild(noneOption);
+
+    statementImport.headers.forEach((label, index) => {
+      const option = document.createElement('option');
+      option.value = String(index);
+      option.textContent = `${label} (Column ${index + 1})`;
+      select.appendChild(option);
+    });
+
+    const value = statementImport.mapping[field];
+    select.value = value === null || value === undefined ? '' : String(value);
+  }
+
+  function populateStatementMappingControls() {
+    const fields = [
+      ['statementDateColumn', 'date'],
+      ['statementDescriptionColumn', 'description'],
+      ['statementDebitColumn', 'debit'],
+      ['statementCreditColumn', 'credit'],
+      ['statementAmountColumn', 'amount'],
+      ['statementIndicatorColumn', 'indicator'],
+      ['statementReferenceColumn', 'reference'],
+      ['statementBalanceColumn', 'balance']
+    ];
+
+    fields.forEach(([selectId, field]) => fillStatementMappingSelect(selectId, field));
+
+    const dateFormatEl = document.getElementById('statementDateFormat');
+    if (dateFormatEl) dateFormatEl.value = statementImport.dateFormat;
+
+    const amountModeEl = document.getElementById('statementAmountMode');
+    if (amountModeEl) amountModeEl.value = statementImport.amountMode;
+
+    updateStatementAmountHint();
+  }
+
+  function readStatementMappingControls() {
+    const fields = [
+      ['statementDateColumn', 'date'],
+      ['statementDescriptionColumn', 'description'],
+      ['statementDebitColumn', 'debit'],
+      ['statementCreditColumn', 'credit'],
+      ['statementAmountColumn', 'amount'],
+      ['statementIndicatorColumn', 'indicator'],
+      ['statementReferenceColumn', 'reference'],
+      ['statementBalanceColumn', 'balance']
+    ];
+
+    fields.forEach(([selectId, field]) => {
+      const select = document.getElementById(selectId);
+      const value = select ? select.value : '';
+      statementImport.mapping[field] = value === '' ? null : Number(value);
+    });
+
+    const dateFormatEl = document.getElementById('statementDateFormat');
+    if (dateFormatEl) statementImport.dateFormat = dateFormatEl.value || 'auto';
+
+    const amountModeEl = document.getElementById('statementAmountMode');
+    if (amountModeEl) statementImport.amountMode = amountModeEl.value || '';
+  }
+
+  function validateStatementMapping() {
+    const mapping = statementImport.mapping;
+    const errors = [];
+    const warnings = [];
+    const headerCount = statementImport.headers.length;
+    const usedColumns = new Map();
+
+    Object.keys(mapping).forEach(field => {
+      const index = mapping[field];
+      if (index === null || index === undefined) return;
+      if (!Number.isInteger(index) || index < 0 || index >= headerCount) {
+        errors.push(`The ${field} column is invalid.`);
+        return;
+      }
+      if (usedColumns.has(index)) {
+        errors.push(`Column ${index + 1} is mapped to both ${usedColumns.get(index)} and ${field}.`);
+      } else {
+        usedColumns.set(index, field);
+      }
+    });
+
+    if (mapping.date === null) errors.push('Map a date column.');
+    if (mapping.description === null) errors.push('Map a description column.');
+
+    if (!statementImport.amountMode) {
+      errors.push('Choose how amount values should be interpreted.');
+    } else if (statementImport.amountMode === 'separate') {
+      if (mapping.debit === null && mapping.credit === null) {
+        errors.push('Map at least one debit or credit column.');
+      }
+      if (mapping.amount !== null) {
+        warnings.push('The single amount column will be ignored while debit/credit columns are used.');
+      }
+    } else if (statementImport.amountMode === 'indicator') {
+      if (mapping.amount === null) errors.push('Map a single amount column.');
+      if (mapping.indicator === null) errors.push('Map a Dr/Cr indicator column.');
+    } else if (['signed', 'debit', 'credit'].includes(statementImport.amountMode)) {
+      if (mapping.amount === null) errors.push('Map a single amount column.');
+    }
+
+    return { ok: errors.length === 0, errors, warnings };
+  }
+
+  function updateStatementNextButton() {
+    const nextBtn = document.getElementById('statementNextBtn');
+    if (!nextBtn) return;
+
+    if (statementImport.step === 1) {
+      nextBtn.textContent = 'Select a CSV';
+      nextBtn.disabled = true;
+      return;
+    }
+
+    if (statementImport.step === 2) {
+      const validation = validateStatementMapping();
+      nextBtn.textContent = 'Preview Transactions';
+      nextBtn.disabled = !validation.ok;
+      return;
+    }
+
+    const selectedCount = statementImport.records.reduce((count, record, index) => (
+      record.valid && statementImport.selected.has(index) ? count + 1 : count
+    ), 0);
+    nextBtn.textContent = selectedCount > 0
+      ? `Import ${selectedCount} transaction${selectedCount === 1 ? '' : 's'}`
+      : 'Import selected transactions';
+    nextBtn.disabled = selectedCount === 0;
+  }
+
+  function refreshStatementMappingUI() {
+    readStatementMappingControls();
+    updateStatementParseMeta();
+    updateStatementAmountHint();
+
+    const validation = validateStatementMapping();
+    const statusEl = document.getElementById('statementMapStatus');
+    if (statusEl) {
+      if (!validation.ok) {
+        statusEl.className = 'import-map-status is-error';
+        statusEl.textContent = validation.errors.join(' ');
+      } else {
+        statusEl.className = 'import-map-status is-ready';
+        statusEl.textContent = validation.warnings.length > 0
+          ? `Ready to preview. ${validation.warnings.join(' ')}`
+          : 'Ready to preview. Confirm the date format and amount interpretation before continuing.';
+      }
+    }
+
+    updateStatementNextButton();
+    return validation;
+  }
+
+  function applyStatementAutoMapping() {
+    const core = getStatementImportCore();
+    if (!core) return;
+
+    const detected = core.detectColumnMapping(statementImport.headers);
+    statementImport.mapping = detected.mapping;
+    statementImport.dateFormat = 'auto';
+    statementImport.amountMode = core.getDefaultAmountMode(detected.mapping) || '';
+    statementImport.records = [];
+    statementImport.selected = new Set();
+    populateStatementMappingControls();
+    refreshStatementMappingUI();
+  }
+
+  function setStatementImportStep(step) {
+    statementImport.step = step;
+
+    const panels = [
+      ['statementChooseStep', 1],
+      ['statementMappingStep', 2],
+      ['statementPreviewStep', 3]
+    ];
+    panels.forEach(([panelId, panelStep]) => {
+      const panel = document.getElementById(panelId);
+      if (panel) panel.classList.toggle('hidden', panelStep !== step);
+    });
+
+    document.querySelectorAll('#statementImportModal .import-step').forEach(stepEl => {
+      const stepNumber = Number(stepEl.dataset.importStep);
+      stepEl.classList.toggle('is-active', stepNumber === step);
+      stepEl.classList.toggle('is-done', stepNumber < step);
+    });
+
+    const backBtn = document.getElementById('statementBackBtn');
+    if (backBtn) backBtn.classList.toggle('hidden', step === 1);
+
+    updateStatementNextButton();
+  }
+
+  function resetStatementImportSession() {
+    statementImport = createEmptyStatementImportState();
+
+    const fileInput = document.getElementById('statementFileInput');
+    if (fileInput) fileInput.value = '';
+
+    const fileNameEl = document.getElementById('statementFileName');
+    if (fileNameEl) fileNameEl.textContent = 'No file selected';
+
+    const parseMetaEl = document.getElementById('statementParseMeta');
+    if (parseMetaEl) parseMetaEl.textContent = 'Parse a CSV to begin.';
+
+    const headerRowInput = document.getElementById('statementHeaderRowInput');
+    if (headerRowInput) headerRowInput.value = '1';
+
+    const dateFormatEl = document.getElementById('statementDateFormat');
+    if (dateFormatEl) dateFormatEl.value = 'auto';
+
+    const amountModeEl = document.getElementById('statementAmountMode');
+    if (amountModeEl) amountModeEl.value = '';
+
+    const mappingSelectIds = [
+      'statementDateColumn', 'statementDescriptionColumn', 'statementDebitColumn',
+      'statementCreditColumn', 'statementAmountColumn', 'statementIndicatorColumn',
+      'statementReferenceColumn', 'statementBalanceColumn'
+    ];
+    mappingSelectIds.forEach(id => {
+      const select = document.getElementById(id);
+      if (select) select.innerHTML = '';
+    });
+
+    const summaryEl = document.getElementById('statementSummary');
+    if (summaryEl) summaryEl.innerHTML = '';
+
+    const previewBody = document.getElementById('statementPreviewBody');
+    if (previewBody) previewBody.innerHTML = '';
+
+    const selectAll = document.getElementById('statementSelectAll');
+    if (selectAll) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    }
+
+    const statusEl = document.getElementById('statementMapStatus');
+    if (statusEl) {
+      statusEl.className = 'import-map-status';
+      statusEl.textContent = '';
+    }
+
+    clearStatementImportError();
+    updateStatementAmountHint();
+  }
+
+  function openStatementImportModal() {
+    resetStatementImportSession();
+    const modal = document.getElementById('statementImportModal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    setStatementImportStep(1);
+    const fileInput = document.getElementById('statementFileInput');
+    if (fileInput) fileInput.focus();
+  }
+
+  function cancelStatementImport() {
+    resetStatementImportSession();
+    closeModal('statementImportModal');
+  }
+
+  function handleStatementFile(file) {
+    if (!file) return;
+
+    const core = getStatementImportCore();
+    if (!core) {
+      showStatementImportError('The statement import module did not load. Refresh the page and try again.');
+      return;
+    }
+
+    resetStatementImportSession();
+    const fileNameEl = document.getElementById('statementFileName');
+    if (fileNameEl) fileNameEl.textContent = file.name;
+
+    const format = core.detectFileFormat(file.name, file.type);
+    if (!format.ok) {
+      showStatementImportError(format.error);
+      return;
+    }
+
+    if (file.size > core.MAX_FILE_BYTES) {
+      showStatementImportError(`This file is too large. Please choose a CSV under ${formatFileSize(core.MAX_FILE_BYTES)}.`);
+      return;
+    }
+
+    if (file.size === 0) {
+      showStatementImportError('The selected file is empty.');
+      return;
+    }
+
+    if (fileNameEl) fileNameEl.textContent = `${file.name} · ${formatFileSize(file.size)}`;
+
+    const reader = new FileReader();
+    reader.onload = function (event) {
+      try {
+        const text = core.decodeStatementBuffer(event.target.result);
+        const parsed = core.parseCsv(text);
+
+        if (!parsed.ok) {
+          showStatementImportError(parsed.error);
+          const input = document.getElementById('statementFileInput');
+          if (input) input.value = '';
+          return;
+        }
+
+        const header = core.findHeaderRow(parsed.rows);
+        const headerCells = parsed.rows[header.index] || [];
+        if (!headerCells.some(cell => core.cleanText(cell) !== '')) {
+          showStatementImportError('Could not find a header row in this CSV.');
+          return;
+        }
+
+        const dataRows = parsed.rows.length - header.index - 1;
+        if (dataRows <= 0) {
+          showStatementImportError('No transaction rows were found after the header row.');
+          return;
+        }
+
+        statementImport.fileName = file.name;
+        statementImport.rows = parsed.rows;
+        statementImport.rowNumbers = parsed.rowNumbers;
+        statementImport.headerRowIndex = header.index;
+        statementImport.delimiterLabel = parsed.delimiterLabel;
+        statementImport.headers = core.getHeaderLabels(headerCells);
+
+        const headerRowInput = document.getElementById('statementHeaderRowInput');
+        if (headerRowInput) headerRowInput.value = String(header.index + 1);
+
+        updateStatementParseMeta();
+        applyStatementAutoMapping();
+        setStatementImportStep(2);
+        clearStatementImportError();
+
+        const input = document.getElementById('statementFileInput');
+        if (input) input.value = '';
+      } catch (err) {
+        showStatementImportError('This CSV could not be parsed. Check the file and try again.');
+        const input = document.getElementById('statementFileInput');
+        if (input) input.value = '';
+      }
+    };
+
+    reader.onerror = function () {
+      showStatementImportError('The selected file could not be read.');
+    };
+
+    reader.readAsArrayBuffer(file);
+  }
+
+  function handleStatementHeaderRowChange() {
+    const input = document.getElementById('statementHeaderRowInput');
+    if (!input || statementImport.rows.length === 0) return;
+
+    const value = Number(input.value);
+    if (!Number.isInteger(value) || value < 1 || value > statementImport.rows.length) {
+      showStatementImportError(`Header row must be between 1 and ${statementImport.rows.length}.`);
+      input.value = String(statementImport.headerRowIndex + 1);
+      return;
+    }
+
+    const newIndex = value - 1;
+    if (newIndex === statementImport.headerRowIndex) return;
+
+    const core = getStatementImportCore();
+    if (!core) return;
+
+    const headerCells = statementImport.rows[newIndex] || [];
+    if (!headerCells.some(cell => core.cleanText(cell) !== '')) {
+      showStatementImportError('The selected header row is empty.');
+      input.value = String(statementImport.headerRowIndex + 1);
+      return;
+    }
+
+    statementImport.headerRowIndex = newIndex;
+    statementImport.headers = core.getHeaderLabels(headerCells);
+    updateStatementParseMeta();
+    applyStatementAutoMapping();
+    clearStatementImportError();
+  }
+
+  function getCategoryOptionsMarkup(type, selectedCategory) {
+    const categories = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+    return categories.map(category => (
+      `<option value="${category.id}"${category.id === selectedCategory ? ' selected' : ''}>${escapeHtml(category.label)}</option>`
+    )).join('');
+  }
+
+  function renderStatementSummary() {
+    const core = getStatementImportCore();
+    if (!core) return;
+
+    const records = statementImport.records;
+    const selectedIndexes = Array.from(statementImport.selected);
+    const summary = core.summarizeRecords(records, selectedIndexes);
+    const summaryEl = document.getElementById('statementSummary');
+
+    if (summaryEl) {
+      summaryEl.innerHTML = [
+        `<span class="summary-chip">${summary.total} extracted</span>`,
+        `<span class="summary-chip summary-chip-valid">${summary.selected} selected</span>`,
+        `<span class="summary-chip">${summary.skipped} not selected</span>`,
+        `<span class="summary-chip summary-chip-duplicate">${summary.duplicates} suspected duplicate${summary.duplicates === 1 ? '' : 's'}</span>`,
+        `<span class="summary-chip summary-chip-invalid">${summary.invalid} invalid</span>`
+      ].join('');
+    }
+
+    const validIndexes = records
+      .map((record, index) => (record.valid ? index : -1))
+      .filter(index => index >= 0);
+    const selectedValid = validIndexes.filter(index => statementImport.selected.has(index)).length;
+
+    const selectAll = document.getElementById('statementSelectAll');
+    if (selectAll) {
+      selectAll.checked = validIndexes.length > 0 && selectedValid === validIndexes.length;
+      selectAll.indeterminate = selectedValid > 0 && selectedValid < validIndexes.length;
+    }
+
+    updateStatementNextButton();
+  }
+
+  function renderStatementPreview() {
+    const bodyEl = document.getElementById('statementPreviewBody');
+    if (!bodyEl) return;
+
+    const records = statementImport.records;
+    let rowsHtml = '';
+
+    records.forEach((record, index) => {
+      const checked = statementImport.selected.has(index);
+      const type = record.type === 'income' ? 'income' : 'expense';
+      const statusClass = !record.valid
+        ? 'import-status-invalid'
+        : (record.duplicate ? 'import-status-duplicate' : 'import-status-ready');
+      const statusLabel = !record.valid
+        ? 'Invalid'
+        : (record.duplicate ? 'Possible duplicate' : 'Ready');
+      const statusReason = !record.valid
+        ? (record.reason || 'Review this row')
+        : (record.duplicate ? record.duplicateReason : '');
+      const dateText = record.date ? formatDateReadable(record.date) : (record.rawDate || '—');
+      const amountText = Number.isFinite(record.amount) && record.amount > 0
+        ? formatINR(record.amount)
+        : (record.rawAmount || '—');
+      const direction = record.direction || '—';
+      const directionClass = record.type === 'income' ? 'text-brand' : (record.type === 'expense' ? 'text-danger' : 'text-secondary');
+      const referenceHtml = record.reference
+        ? `<span class="import-ref">Ref: ${escapeHtml(record.reference)}</span>`
+        : '';
+
+      rowsHtml += `
+        <tr class="${record.valid ? '' : 'row-invalid'}${record.valid && record.duplicate ? ' row-duplicate' : ''}">
+          <td>
+            <input type="checkbox" class="import-row-check" data-index="${index}"
+              aria-label="Include extracted row ${record.rowNumber}"
+              ${checked ? 'checked' : ''} ${record.valid ? '' : 'disabled'}>
+          </td>
+          <td>${escapeHtml(dateText)}</td>
+          <td class="import-desc">
+            ${escapeHtml(record.description || '—')}
+            ${referenceHtml}
+          </td>
+          <td><span class="${directionClass}">${escapeHtml(direction)}</span></td>
+          <td>
+            <select class="form-select import-select import-type-select" data-index="${index}"
+              aria-label="Transaction type for row ${record.rowNumber}" ${record.valid ? '' : 'disabled'}>
+              <option value="expense"${type === 'expense' ? ' selected' : ''}>Expense</option>
+              <option value="income"${type === 'income' ? ' selected' : ''}>Income</option>
+            </select>
+          </td>
+          <td>
+            <select class="form-select import-select import-category-select" data-index="${index}"
+              aria-label="Category for row ${record.rowNumber}" ${record.valid ? '' : 'disabled'}>
+              ${getCategoryOptionsMarkup(type, record.category)}
+            </select>
+          </td>
+          <td class="import-amount">${escapeHtml(amountText)}</td>
+          <td class="import-status">
+            <span class="import-status-badge ${statusClass}">${statusLabel}</span>
+            ${statusReason ? `<span class="import-status-reason">${escapeHtml(statusReason)}</span>` : ''}
+          </td>
+        </tr>
+      `;
+    });
+
+    bodyEl.innerHTML = rowsHtml;
+    renderStatementSummary();
+  }
+
+  function handleStatementPreview() {
+    const core = getStatementImportCore();
+    if (!core) {
+      showStatementImportError('The statement import module did not load. Refresh the page and try again.');
+      return;
+    }
+
+    const validation = refreshStatementMappingUI();
+    if (!validation.ok) {
+      showStatementImportError('Please complete the column mapping and amount interpretation before previewing.');
+      return;
+    }
+
+    const result = core.buildRecords({
+      rows: statementImport.rows,
+      rowNumbers: statementImport.rowNumbers,
+      headerRow: statementImport.headerRowIndex,
+      mapping: statementImport.mapping,
+      dateFormat: statementImport.dateFormat,
+      amountMode: statementImport.amountMode
+    });
+
+    if (!result.ok) {
+      showStatementImportError(result.error);
+      return;
+    }
+
+    if (result.records.length === 0) {
+      showStatementImportError('No transaction rows were found after the header row.');
+      return;
+    }
+
+    const annotated = core.annotateDuplicates(result.records, state.transactions);
+    const selected = new Set();
+    annotated.forEach((record, index) => {
+      if (record.valid && !record.duplicate) selected.add(index);
+    });
+
+    statementImport.records = annotated;
+    statementImport.selected = selected;
+    renderStatementPreview();
+    setStatementImportStep(3);
+    clearStatementImportError();
+
+    if (!annotated.some(record => record.valid)) {
+      showStatementImportError('No valid transactions were found. Go back and check the date, amount, and column mapping.');
+    }
+  }
+
+  function handleStatementPreviewChange(event) {
+    const target = event.target;
+    if (!target || target.dataset.index === undefined) return;
+
+    const index = Number(target.dataset.index);
+    if (!Number.isInteger(index) || !statementImport.records[index]) return;
+
+    const core = getStatementImportCore();
+    if (!core) return;
+
+    if (target.classList.contains('import-row-select')) {
+      if (target.checked) statementImport.selected.add(index);
+      else statementImport.selected.delete(index);
+      renderStatementSummary();
+      return;
+    }
+
+    if (target.classList.contains('import-type-select')) {
+      const record = statementImport.records[index];
+      if (!record.valid) return;
+      record.type = target.value === 'income' ? 'income' : 'expense';
+      record.direction = record.type === 'income' ? 'Credit' : 'Debit';
+      record.category = core.suggestCategory(record.description, record.type);
+      statementImport.records = core.annotateDuplicates(statementImport.records, state.transactions);
+      renderStatementPreview();
+      return;
+    }
+
+    if (target.classList.contains('import-category-select')) {
+      statementImport.records[index].category = target.value;
+    }
+  }
+
+  function handleStatementSelectAll() {
+    const selectAll = document.getElementById('statementSelectAll');
+    if (!selectAll) return;
+
+    const selected = new Set();
+    if (selectAll.checked) {
+      statementImport.records.forEach((record, index) => {
+        if (record.valid) selected.add(index);
+      });
+    }
+    statementImport.selected = selected;
+    renderStatementPreview();
+  }
+
+  function handleStatementImportConfirm() {
+    const core = getStatementImportCore();
+    if (!core) return;
+
+    const selectedRecords = statementImport.records.filter((record, index) => (
+      record.valid && statementImport.selected.has(index)
+    ));
+
+    if (selectedRecords.length === 0) {
+      showStatementImportError('Select at least one valid transaction to import.');
+      return;
+    }
+
+    const invalidSelected = selectedRecords.filter(record => !core.validateRecord(record).valid);
+    if (invalidSelected.length > 0) {
+      showStatementImportError('Some selected rows are invalid. Review them and try again.');
+      return;
+    }
+
+    const built = core.buildImportedTransactions(selectedRecords, state.transactions);
+    if (built.rejected.length > 0 || built.transactions.length === 0) {
+      showStatementImportError('The selected transactions could not be validated. No data was saved.');
+      return;
+    }
+
+    const previousTransactions = state.transactions;
+    state.transactions = core.mergeImportedTransactions(previousTransactions, built.transactions);
+
+    if (!saveState()) {
+      state.transactions = previousTransactions;
+      showStatementImportError('The import could not be saved to localStorage. Your previous data is unchanged.');
+      return;
+    }
+
+    const total = statementImport.records.length;
+    const invalidCount = statementImport.records.filter(record => !record.valid).length;
+    const duplicateSkipped = statementImport.records.filter((record, index) => (
+      record.valid && record.duplicate && !statementImport.selected.has(index)
+    )).length;
+    const importedCount = built.transactions.length;
+    const selectedDuplicates = selectedRecords.filter(record => record.duplicate).length;
+    const skipped = total - importedCount;
+    const otherSkipped = Math.max(0, skipped - invalidCount - duplicateSkipped);
+
+    const importedDates = built.transactions.map(transaction => transaction.date).sort();
+    const activeMonthKey = getMonthKey(activeYear, activeMonth);
+    const importedMonthKeys = new Set(built.transactions.map(transaction => transaction.date.slice(0, 7)));
+    let monthNote = '';
+
+    if (!importedMonthKeys.has(activeMonthKey) && importedDates.length > 0) {
+      const latestDate = importedDates[importedDates.length - 1];
+      activeYear = Number(latestDate.slice(0, 4));
+      activeMonth = Number(latestDate.slice(5, 7)) - 1;
+      monthNote = ` Showing ${MONTH_NAMES[activeMonth]} ${activeYear}.`;
+    }
+
+    const skippedParts = [];
+    if (invalidCount > 0) skippedParts.push(`${invalidCount} invalid`);
+    if (duplicateSkipped > 0) skippedParts.push(`${duplicateSkipped} duplicate${duplicateSkipped === 1 ? '' : 's'} excluded`);
+    if (otherSkipped > 0) skippedParts.push(`${otherSkipped} deselected`);
+
+    let message = `Imported ${importedCount} transaction${importedCount === 1 ? '' : 's'}.`;
+    if (skipped > 0) {
+      message += ` ${skipped} row${skipped === 1 ? '' : 's'} skipped${skippedParts.length > 0 ? ` (${skippedParts.join(', ')})` : ''}.`;
+    }
+    if (selectedDuplicates > 0) {
+      message += ` Includes ${selectedDuplicates} suspected duplicate${selectedDuplicates === 1 ? '' : 's'} you selected.`;
+    }
+    message += monthNote;
+
+    resetStatementImportSession();
+    closeModal('statementImportModal');
+    renderAll();
+    switchTab('transactions');
+    showToast(message, skipped > 0 ? 'info' : 'success');
+  }
+
+  function bindStatementImportEvents() {
+    const openButtons = ['txViewImportBtn', 'importStatementDataBtn'];
+    openButtons.forEach(id => {
+      const button = document.getElementById(id);
+      if (button) {
+        button.addEventListener('click', () => {
+          const dropdown = document.getElementById('dataMenuDropdown');
+          if (dropdown) dropdown.classList.add('hidden');
+          openStatementImportModal();
+        });
+      }
+    });
+
+    const fileInput = document.getElementById('statementFileInput');
+    if (fileInput) {
+      fileInput.addEventListener('change', event => {
+        if (event.target.files && event.target.files[0]) {
+          handleStatementFile(event.target.files[0]);
+        }
+      });
+    }
+
+    const headerRowInput = document.getElementById('statementHeaderRowInput');
+    if (headerRowInput) headerRowInput.addEventListener('change', handleStatementHeaderRowChange);
+
+    const mappingSelectIds = [
+      'statementDateColumn', 'statementDescriptionColumn', 'statementDebitColumn',
+      'statementCreditColumn', 'statementAmountColumn', 'statementIndicatorColumn',
+      'statementReferenceColumn', 'statementBalanceColumn', 'statementDateFormat',
+      'statementAmountMode'
+    ];
+    mappingSelectIds.forEach(id => {
+      const select = document.getElementById(id);
+      if (select) select.addEventListener('change', refreshStatementMappingUI);
+    });
+
+    const selectAll = document.getElementById('statementSelectAll');
+    if (selectAll) selectAll.addEventListener('change', handleStatementSelectAll);
+
+    const previewBody = document.getElementById('statementPreviewBody');
+    if (previewBody) previewBody.addEventListener('change', handleStatementPreviewChange);
+
+    const nextBtn = document.getElementById('statementNextBtn');
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => {
+        if (statementImport.step === 2) handleStatementPreview();
+        else if (statementImport.step === 3) handleStatementImportConfirm();
+      });
+    }
+
+    const backBtn = document.getElementById('statementBackBtn');
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        if (statementImport.step === 3) {
+          setStatementImportStep(2);
+          refreshStatementMappingUI();
+        } else if (statementImport.step === 2) {
+          resetStatementImportSession();
+          setStatementImportStep(1);
+        }
+      });
+    }
+
+    const cancelBtn = document.getElementById('statementCancelBtn');
+    if (cancelBtn) cancelBtn.addEventListener('click', cancelStatementImport);
+
+    const closeBtn = document.getElementById('closeStatementImportBtn');
+    if (closeBtn) closeBtn.addEventListener('click', cancelStatementImport);
+
+    const statementModal = document.getElementById('statementImportModal');
+    if (statementModal) {
+      statementModal.addEventListener('click', event => {
+        if (event.target === statementModal) resetStatementImportSession();
+      });
+    }
+
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      if (statementImport.step !== 1 || statementImport.rows.length > 0) {
+        resetStatementImportSession();
+      }
+    });
+  }
+
+  // =========================================================================
   // 11. NAVIGATION & TABS
   // =========================================================================
 
@@ -2164,6 +3000,8 @@
 
     const txViewAddBtn = document.getElementById('txViewAddBtn');
     if (txViewAddBtn) txViewAddBtn.addEventListener('click', () => openAddTransactionModal('expense'));
+
+    bindStatementImportEvents();
 
     // Data dropdown menu
     const dataMenuBtn = document.getElementById('dataMenuBtn');

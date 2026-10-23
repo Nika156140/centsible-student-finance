@@ -66,6 +66,10 @@
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
               <span>Import Data (JSON)</span>
             </button>
+            <button id="importStatementDataBtn" class="dropdown-item" role="menuitem">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line><path d="M8 11h8"></path></svg>
+              <span>Import Bank Statement (CSV)</span>
+            </button>
             <div class="dropdown-divider"></div>
             <button id="clearAllDataBtn" class="dropdown-item text-danger" role="menuitem">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -284,10 +288,16 @@
             <h2 class="view-title">Transactions Manager</h2>
             <p class="view-subtitle">Track, filter, and review all your college income and expenditures</p>
           </div>
-          <button id="txViewAddBtn" class="btn btn-primary">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            <span>Record Transaction</span>
-          </button>
+          <div class="view-header-actions">
+            <button id="txViewImportBtn" class="btn btn-outline">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              <span>Import Statement</span>
+            </button>
+            <button id="txViewAddBtn" class="btn btn-primary">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              <span>Record Transaction</span>
+            </button>
+          </div>
         </div>
 
         <!-- Filter & Search Toolbar -->
@@ -654,6 +664,7 @@
                 <option value="Cash">Cash</option>
                 <option value="Card">Debit / Credit Card</option>
                 <option value="NetBanking">Net Banking</option>
+                <option value="Bank">Bank Statement / Transfer</option>
               </select>
             </div>
           </div>
@@ -822,7 +833,171 @@
     </div>
   </div>
 
-  <!-- Modal 6: Confirmation Dialog Modal (for deletes, resets) -->
+  <!-- Modal 6: Import Bank Statement (CSV) -->
+  <div id="statementImportModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="statementImportTitle">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <div>
+          <h3 id="statementImportTitle" class="modal-title">Import Bank Statement</h3>
+          <p class="modal-subtitle">CSV supported today · processed locally in this browser</p>
+        </div>
+        <button id="closeStatementImportBtn" class="modal-close-btn" aria-label="Close dialog">&times;</button>
+      </div>
+
+      <div class="import-stepper" aria-label="Import progress">
+        <div class="import-step is-active" data-import-step="1">
+          <span class="import-step-num">1</span>
+          <span>Choose CSV</span>
+        </div>
+        <div class="import-step" data-import-step="2">
+          <span class="import-step-num">2</span>
+          <span>Map columns</span>
+        </div>
+        <div class="import-step" data-import-step="3">
+          <span class="import-step-num">3</span>
+          <span>Review &amp; import</span>
+        </div>
+      </div>
+
+      <div class="modal-body import-modal-body">
+        <div id="statementImportError" class="import-alert import-alert-error hidden" role="alert" aria-live="assertive"></div>
+
+        <!-- Step 1: Choose file -->
+        <section id="statementChooseStep" class="import-step-panel">
+          <div class="import-dropzone">
+            <div class="import-dropzone-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><polyline points="9 15 12 12 15 15"></polyline></svg>
+            </div>
+            <h4 class="import-dropzone-title">Select a bank statement CSV</h4>
+            <p class="import-dropzone-text">Required: a date, a description, and either debit/credit columns or a single amount column. Running balances are ignored.</p>
+            <label for="statementFileInput" class="btn btn-primary">Choose CSV file</label>
+            <input type="file" id="statementFileInput" class="sr-only" accept=".csv,text/csv">
+            <p id="statementFileName" class="import-file-name">No file selected</p>
+          </div>
+
+          <ul class="import-notes">
+            <li>Files never leave your browser. No upload or external service is used.</li>
+            <li>Maximum file size: 2 MB. Maximum transaction rows: 2,000.</li>
+            <li>Imported transactions are saved in browser <code>localStorage</code>, which is local but not encrypted.</li>
+            <li>PDF statements are not supported yet. Export a CSV from your bank for now.</li>
+          </ul>
+        </section>
+
+        <!-- Step 2: Map columns -->
+        <section id="statementMappingStep" class="import-step-panel hidden">
+          <div class="import-mapping-head">
+            <div>
+              <h4 class="import-section-title">Map statement columns</h4>
+              <p id="statementParseMeta" class="text-secondary text-sm">Parse a CSV to begin.</p>
+            </div>
+            <div class="import-header-row-control">
+              <label for="statementHeaderRowInput" class="form-label">Header row</label>
+              <input type="number" id="statementHeaderRowInput" class="form-input" min="1" step="1" value="1">
+            </div>
+          </div>
+
+          <div class="import-mapping-grid">
+            <div class="form-group">
+              <label for="statementDateColumn" class="form-label">Date <span class="required">*</span></label>
+              <select id="statementDateColumn" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="statementDescriptionColumn" class="form-label">Description / Narration <span class="required">*</span></label>
+              <select id="statementDescriptionColumn" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="statementDebitColumn" class="form-label">Debit / Withdrawal</label>
+              <select id="statementDebitColumn" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="statementCreditColumn" class="form-label">Credit / Deposit</label>
+              <select id="statementCreditColumn" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="statementAmountColumn" class="form-label">Single Amount</label>
+              <select id="statementAmountColumn" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="statementIndicatorColumn" class="form-label">Dr/Cr Indicator</label>
+              <select id="statementIndicatorColumn" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="statementReferenceColumn" class="form-label">Reference / Transaction ID</label>
+              <select id="statementReferenceColumn" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label for="statementBalanceColumn" class="form-label">Running Balance (optional, ignored)</label>
+              <select id="statementBalanceColumn" class="form-select"></select>
+            </div>
+          </div>
+
+          <div class="form-row import-mode-row">
+            <div class="form-group flex-1">
+              <label for="statementDateFormat" class="form-label">Date format</label>
+              <select id="statementDateFormat" class="form-select">
+                <option value="auto">Auto-detect (day-first when ambiguous)</option>
+                <option value="DMY">DD/MM/YYYY</option>
+                <option value="MDY">MM/DD/YYYY</option>
+                <option value="YMD">YYYY-MM-DD</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="statementAmountMode" class="form-label">Amount interpretation</label>
+              <select id="statementAmountMode" class="form-select">
+                <option value="">Select interpretation</option>
+                <option value="separate">Use separate debit and credit columns</option>
+                <option value="signed">Signed amount: negative = expense, positive = income</option>
+                <option value="debit">Single amount: all are expenses</option>
+                <option value="credit">Single amount: all are income</option>
+                <option value="indicator">Use the Dr/Cr indicator column</option>
+              </select>
+              <p id="statementAmountModeHint" class="form-hint">We will not guess whether an unsigned amount is income or an expense.</p>
+            </div>
+          </div>
+
+          <div id="statementMapStatus" class="import-map-status" role="status" aria-live="polite"></div>
+        </section>
+
+        <!-- Step 3: Review and import -->
+        <section id="statementPreviewStep" class="import-step-panel hidden">
+          <div id="statementSummary" class="import-summary"></div>
+          <div class="import-preview-toolbar">
+            <label class="import-check-all">
+              <input type="checkbox" id="statementSelectAll">
+              <span>Select all valid rows</span>
+            </label>
+            <span class="import-duplicate-hint">Suspected duplicates start unselected.</span>
+          </div>
+          <div class="import-preview-wrap">
+            <table class="import-preview-table">
+              <thead>
+                <tr>
+                  <th scope="col">Include</th>
+                  <th scope="col">Date</th>
+                  <th scope="col">Description</th>
+                  <th scope="col">Direction</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Category</th>
+                  <th scope="col" class="import-amount-col">Amount</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody id="statementPreviewBody"></tbody>
+            </table>
+          </div>
+          <p class="import-privacy-note">Nothing is saved until you click <strong>Import selected transactions</strong>. Descriptions are treated as plain text.</p>
+        </section>
+      </div>
+
+      <div class="modal-footer import-modal-footer">
+        <button type="button" id="statementBackBtn" class="btn btn-outline btn-sm hidden">Back</button>
+        <button type="button" id="statementCancelBtn" class="btn btn-ghost">Cancel</button>
+        <button type="button" id="statementNextBtn" class="btn btn-primary" disabled>Select a CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 7: Confirmation Dialog Modal (for deletes, resets) -->
   <div id="confirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
     <div class="modal-dialog modal-sm">
       <div class="modal-header">
@@ -871,6 +1046,7 @@
   <!-- Toast Notification Container -->
   <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
+  <script src="statement_import.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

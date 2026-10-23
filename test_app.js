@@ -16,6 +16,7 @@
 
 const fs = require('fs');
 const assert = require('assert');
+const statementImport = require('./statement_import.js');
 
 console.log('====================================================');
 console.log('   CENTSIBLE VERIFICATION & REGRESSION TEST SUITE   ');
@@ -28,15 +29,19 @@ console.log('[Test 1] Verifying File Existence & Asset Links...');
 assert.ok(fs.existsSync('index.html'), 'index.html must exist');
 assert.ok(fs.existsSync('styles.css'), 'styles.css must exist');
 assert.ok(fs.existsSync('app.js'), 'app.js must exist');
+assert.ok(fs.existsSync('statement_import.js'), 'statement_import.js must exist');
 assert.ok(fs.existsSync('README.md'), 'README.md must exist');
 
 const htmlContent = fs.readFileSync('index.html', 'utf8');
 const cssContent = fs.readFileSync('styles.css', 'utf8');
 const jsContent = fs.readFileSync('app.js', 'utf8');
+const importContent = fs.readFileSync('statement_import.js', 'utf8');
 
-// Ensure stylesheet and script are linked in index.html
+// Ensure stylesheet and scripts are linked in index.html
 assert.ok(htmlContent.includes('<link rel="stylesheet" href="styles.css">'), 'index.html must link styles.css');
+assert.ok(htmlContent.includes('<script src="statement_import.js"></script>'), 'index.html must link statement_import.js');
 assert.ok(htmlContent.includes('<script src="app.js"></script>'), 'index.html must link app.js');
+assert.ok(importContent.includes('CentsibleStatementImport'), 'statement_import.js must expose the browser API');
 
 // Confirm no external CDNs or remote dependencies
 assert.ok(!/<script[^>]+src=["']https?:/i.test(htmlContent), 'No external scripts allowed');
@@ -427,6 +432,408 @@ console.log('  • Desktop Viewport (1280px): Preserved horizontal layout with f
 
 console.log('✓ Test 12 Passed: Insight card responsive geometry verified at all target viewports.\n');
 
+// -----------------------------------------------------------------------------
+// TEST 13: CSV Parsing with Debit/Credit, Quoted Fields, BOM & Thousands
+// -----------------------------------------------------------------------------
+console.log('[Test 13] Verifying CSV parsing, column detection, and debit/credit normalization...');
+
+const syntheticDebitCreditCsv = '\uFEFF' + [
+  'Date,Narration,Withdrawal Amt,Deposit Amt,Ref No,Closing Balance',
+  '02/10/2026,"  Campus cafe, lunch  ",350.00,,REF-001,"₹12,000.00"',
+  ',,,,,',
+  '05-Oct-2026,Freelance stipend,,"2,500.00",REF-002,14500',
+  '2026-10-07,Metro card recharge,400,,REF-003,14100',
+  '10/10/2026,Netflix subscription,199,,REF-004,13901'
+].join('\r\n');
+
+const parsedDebitCredit = statementImport.parseCsv(syntheticDebitCreditCsv);
+assert.strictEqual(parsedDebitCredit.ok, true, 'Synthetic debit/credit CSV must parse');
+assert.strictEqual(parsedDebitCredit.delimiterLabel, 'Comma');
+const debitCreditHeader = statementImport.findHeaderRow(parsedDebitCredit.rows);
+assert.strictEqual(debitCreditHeader.index, 0, 'Header row must be detected on the first row');
+const debitCreditMapping = statementImport.detectColumnMapping(parsedDebitCredit.rows[0]);
+assert.strictEqual(debitCreditMapping.mapping.date, 0);
+assert.strictEqual(debitCreditMapping.mapping.description, 1);
+assert.strictEqual(debitCreditMapping.mapping.debit, 2);
+assert.strictEqual(debitCreditMapping.mapping.credit, 3);
+assert.strictEqual(debitCreditMapping.mapping.reference, 4);
+assert.strictEqual(debitCreditMapping.mapping.balance, 5);
+
+const debitCreditRecords = statementImport.buildRecords({
+  rows: parsedDebitCredit.rows,
+  rowNumbers: parsedDebitCredit.rowNumbers,
+  headerRow: debitCreditHeader.index,
+  mapping: debitCreditMapping.mapping,
+  amountMode: 'separate'
+});
+assert.strictEqual(debitCreditRecords.ok, true);
+assert.strictEqual(debitCreditRecords.records.length, 4, 'The empty CSV row must be skipped');
+assert.strictEqual(debitCreditRecords.records[0].description, 'Campus cafe, lunch');
+assert.strictEqual(debitCreditRecords.records[0].type, 'expense');
+assert.strictEqual(debitCreditRecords.records[0].amount, 350);
+assert.strictEqual(debitCreditRecords.records[0].category, 'Food');
+assert.strictEqual(debitCreditRecords.records[0].reference, 'REF-001');
+assert.strictEqual(debitCreditRecords.records[1].type, 'income');
+assert.strictEqual(debitCreditRecords.records[1].amount, 2500);
+assert.strictEqual(debitCreditRecords.records[1].category, 'Freelance');
+assert.strictEqual(debitCreditRecords.records[2].category, 'Travel');
+assert.strictEqual(debitCreditRecords.records[3].category, 'Entertainment');
+
+const semicolonCsv = 'Date;Narration;Amount\r\n2026-10-02;"Cafe, campus";-350\r\n';
+const parsedSemicolon = statementImport.parseCsv(semicolonCsv);
+assert.strictEqual(parsedSemicolon.ok, true);
+assert.strictEqual(parsedSemicolon.delimiterLabel, 'Semicolon');
+const semicolonMapping = statementImport.detectColumnMapping(parsedSemicolon.rows[0]);
+assert.strictEqual(semicolonMapping.mapping.amount, 2);
+const semicolonRecord = statementImport.buildRecords({
+  rows: parsedSemicolon.rows,
+  rowNumbers: parsedSemicolon.rowNumbers,
+  mapping: semicolonMapping.mapping,
+  amountMode: 'signed'
+});
+assert.strictEqual(semicolonRecord.records[0].description, 'Cafe, campus');
+assert.strictEqual(semicolonRecord.records[0].amount, 350);
+assert.strictEqual(semicolonRecord.records[0].type, 'expense');
+
+console.log('✓ Test 13 Passed: Debit/credit, quoted commas, BOM, CRLF, semicolons, thousands separators, and balances handled.\n');
+
+// -----------------------------------------------------------------------------
+// TEST 14: Signed Amounts, Ambiguous Amounts & Dr/Cr Indicators
+// -----------------------------------------------------------------------------
+console.log('[Test 14] Verifying signed amounts, explicit ambiguity handling, and Dr/Cr indicators...');
+
+const signedCsv = [
+  'Date,Description,Amount',
+  '2026-10-02,Canteen lunch,-350',
+  '2026-10-03,Scholarship credit,5000'
+].join('\n');
+const parsedSigned = statementImport.parseCsv(signedCsv);
+const signedMapping = statementImport.detectColumnMapping(parsedSigned.rows[0]);
+assert.strictEqual(signedMapping.mapping.amount, 2);
+
+const signedRecords = statementImport.buildRecords({
+  rows: parsedSigned.rows,
+  rowNumbers: parsedSigned.rowNumbers,
+  mapping: signedMapping.mapping,
+  amountMode: 'signed'
+});
+assert.strictEqual(signedRecords.records[0].type, 'expense');
+assert.strictEqual(signedRecords.records[0].amount, 350);
+assert.strictEqual(signedRecords.records[1].type, 'income');
+assert.strictEqual(signedRecords.records[1].category, 'Scholarship');
+
+const unsignedCsv = 'Date,Description,Amount\n2026-10-02,Book purchase,850\n';
+const parsedUnsigned = statementImport.parseCsv(unsignedCsv);
+const unsignedMapping = statementImport.detectColumnMapping(parsedUnsigned.rows[0]);
+const ambiguousResult = statementImport.buildRecords({
+  rows: parsedUnsigned.rows,
+  rowNumbers: parsedUnsigned.rowNumbers,
+  mapping: unsignedMapping.mapping,
+  amountMode: ''
+});
+assert.strictEqual(ambiguousResult.ok, false, 'Unsigned single amounts must require an explicit interpretation');
+
+const allExpenses = statementImport.buildRecords({
+  rows: parsedUnsigned.rows,
+  rowNumbers: parsedUnsigned.rowNumbers,
+  mapping: unsignedMapping.mapping,
+  amountMode: 'debit'
+});
+assert.strictEqual(allExpenses.records[0].type, 'expense');
+assert.strictEqual(allExpenses.records[0].amount, 850);
+
+const drCrHeaderMapping = statementImport.detectColumnMapping(['Date', 'Description', 'Amount', 'Debit/Credit']);
+assert.strictEqual(drCrHeaderMapping.mapping.indicator, 3, 'Debit/Credit must map to the indicator, not a debit amount');
+assert.strictEqual(drCrHeaderMapping.mapping.debit, null);
+assert.strictEqual(drCrHeaderMapping.mapping.credit, null);
+
+const indicatorCsv = [
+  'Date,Description,Amount,Dr/Cr',
+  '2026-10-02,Book purchase,850,DR',
+  '2026-10-03,Gift from family,650,CR'
+].join('\n');
+const parsedIndicator = statementImport.parseCsv(indicatorCsv);
+const indicatorMapping = statementImport.detectColumnMapping(parsedIndicator.rows[0]);
+assert.strictEqual(indicatorMapping.mapping.indicator, 3);
+const indicatorRecords = statementImport.buildRecords({
+  rows: parsedIndicator.rows,
+  rowNumbers: parsedIndicator.rowNumbers,
+  mapping: indicatorMapping.mapping,
+  amountMode: 'indicator'
+});
+assert.strictEqual(indicatorRecords.records[0].type, 'expense');
+assert.strictEqual(indicatorRecords.records[0].category, 'Education');
+assert.strictEqual(indicatorRecords.records[1].type, 'income');
+assert.strictEqual(indicatorRecords.records[1].category, 'Gift');
+
+console.log('✓ Test 14 Passed: Signed, unsigned/ambiguous, and Dr/Cr indicator flows verified.\n');
+
+// -----------------------------------------------------------------------------
+// TEST 15: Date and Amount Normalization & Invalid Values
+// -----------------------------------------------------------------------------
+console.log('[Test 15] Verifying date formats, Indian amounts, and invalid-value handling...');
+
+const dateAuto = statementImport.parseStatementDate('02/10/2026', 'auto');
+assert.strictEqual(dateAuto.ok, true);
+assert.strictEqual(dateAuto.iso, '2026-10-02');
+assert.strictEqual(dateAuto.assumedDayFirst, true);
+
+const dateMdy = statementImport.parseStatementDate('10/02/2026', 'MDY');
+assert.strictEqual(dateMdy.iso, '2026-10-02');
+
+const dateIso = statementImport.parseStatementDate('2026-10-02', 'auto');
+assert.strictEqual(dateIso.iso, '2026-10-02');
+
+const dateNamed = statementImport.parseStatementDate('2 Oct 2026', 'auto');
+assert.strictEqual(dateNamed.iso, '2026-10-02');
+
+const dateNamedUs = statementImport.parseStatementDate('Oct 2, 2026', 'auto');
+assert.strictEqual(dateNamedUs.iso, '2026-10-02');
+
+assert.strictEqual(statementImport.parseStatementDate('31/02/2026', 'auto').ok, false);
+assert.strictEqual(statementImport.parseStatementDate('not-a-date', 'auto').ok, false);
+
+const amountIndian = statementImport.parseStatementAmount('₹1,23,456.50');
+assert.strictEqual(amountIndian.ok, true);
+assert.strictEqual(amountIndian.value, 123456.5);
+
+const amountDr = statementImport.parseStatementAmount('1,234.50 Dr');
+assert.strictEqual(amountDr.value, 1234.5);
+assert.strictEqual(amountDr.indicator, 'DR');
+
+const amountParentheses = statementImport.parseStatementAmount('(500)');
+assert.strictEqual(amountParentheses.value, 500);
+assert.strictEqual(amountParentheses.negative, true);
+assert.strictEqual(statementImport.parseStatementAmount('not-money').ok, false);
+assert.strictEqual(statementImport.parseStatementAmount('').empty, true);
+
+const invalidCsv = [
+  'Date,Description,Amount',
+  '31/02/2026,Bad date,-100',
+  'not-a-date,Bad date two,-50',
+  '2026-10-02,Good row,-10'
+].join('\n');
+const parsedInvalid = statementImport.parseCsv(invalidCsv);
+const invalidMapping = statementImport.detectColumnMapping(parsedInvalid.rows[0]);
+const invalidRecords = statementImport.buildRecords({
+  rows: parsedInvalid.rows,
+  rowNumbers: parsedInvalid.rowNumbers,
+  mapping: invalidMapping.mapping,
+  amountMode: 'signed'
+});
+assert.strictEqual(invalidRecords.records[0].valid, false);
+assert.ok(invalidRecords.records[0].reason.includes('Date'));
+assert.strictEqual(invalidRecords.records[1].valid, false);
+assert.strictEqual(invalidRecords.records[2].valid, true);
+assert.strictEqual(invalidRecords.counts.invalid, 2);
+
+console.log('✓ Test 15 Passed: Date formats, ₹/comma amounts, parentheses, DR suffix, and invalid values verified.\n');
+
+// -----------------------------------------------------------------------------
+// TEST 16: Missing Columns, Empty/Malformed CSV, and Limits
+// -----------------------------------------------------------------------------
+console.log('[Test 16] Verifying missing columns, empty/malformed files, format checks, and limits...');
+
+assert.strictEqual(statementImport.parseCsv('').ok, false);
+assert.strictEqual(statementImport.parseCsv('   \r\n  ').ok, false);
+assert.strictEqual(statementImport.parseCsv('Date,Description,Amount\n2026-10-02,"Unclosed,400').ok, false);
+
+const missingAmountCsv = 'Date,Description\n2026-10-02,Cafe\n';
+const parsedMissing = statementImport.parseCsv(missingAmountCsv);
+const missingMapping = statementImport.detectColumnMapping(parsedMissing.rows[0]);
+assert.ok(missingMapping.missingRequired.length === 0, 'Date and description are present');
+const missingAmountResult = statementImport.buildRecords({
+  rows: parsedMissing.rows,
+  rowNumbers: parsedMissing.rowNumbers,
+  mapping: missingMapping.mapping,
+  amountMode: 'separate'
+});
+assert.strictEqual(missingAmountResult.ok, false, 'Separate mode requires a debit or credit column');
+
+const missingDateMapping = statementImport.detectColumnMapping(['Narration', 'Amount']);
+assert.ok(missingDateMapping.missingRequired.includes('date'));
+
+const csvFormat = statementImport.detectFileFormat('synthetic_statement.csv', 'text/csv');
+assert.strictEqual(csvFormat.ok, true);
+const pdfFormat = statementImport.detectFileFormat('synthetic_statement.pdf', 'application/pdf');
+assert.strictEqual(pdfFormat.ok, false);
+assert.strictEqual(pdfFormat.format, 'pdf');
+assert.ok(/not supported yet/i.test(pdfFormat.error));
+assert.strictEqual(statementImport.detectFileFormat('synthetic_statement.xlsx', 'application/vnd.ms-excel').ok, false);
+assert.strictEqual(statementImport.MAX_FILE_BYTES, 2 * 1024 * 1024);
+assert.strictEqual(statementImport.MAX_RECORDS, 2000);
+
+const oversizedRows = [['Date', 'Description', 'Amount']];
+for (let i = 0; i < statementImport.MAX_RECORDS + 1; i += 1) {
+  oversizedRows.push(['2026-10-02', `Synthetic row ${i}`, '-10']);
+}
+const oversizedResult = statementImport.buildRecords({
+  rows: oversizedRows,
+  headerRow: 0,
+  mapping: { date: 0, description: 1, debit: null, credit: null, amount: 2, reference: null, balance: null, indicator: null },
+  amountMode: 'signed'
+});
+assert.strictEqual(oversizedResult.ok, false);
+assert.ok(/more than 2,000/i.test(oversizedResult.error));
+
+console.log('✓ Test 16 Passed: Missing columns, empty/malformed CSV, CSV/PDF format checks, file size, and row limits verified.\n');
+
+// -----------------------------------------------------------------------------
+// TEST 17: Duplicate Detection & Safe Description Handling
+// -----------------------------------------------------------------------------
+console.log('[Test 17] Verifying reference/composite duplicates, repeats, re-imports, and HTML-like text...');
+
+const repeatCsv = [
+  'Date,Description,Amount,Ref No',
+  '2026-10-02,Chai break,-20,REF-A',
+  '2026-10-02,Chai break,-20,REF-B'
+].join('\n');
+const parsedRepeats = statementImport.parseCsv(repeatCsv);
+const repeatMapping = statementImport.detectColumnMapping(parsedRepeats.rows[0]);
+const repeatRecords = statementImport.buildRecords({
+  rows: parsedRepeats.rows,
+  rowNumbers: parsedRepeats.rowNumbers,
+  mapping: repeatMapping.mapping,
+  amountMode: 'signed'
+});
+const repeatsAgainstEmpty = statementImport.annotateDuplicates(repeatRecords.records, []);
+assert.strictEqual(repeatsAgainstEmpty.length, 2, 'Repeated legitimate purchases must not be dropped');
+assert.strictEqual(repeatsAgainstEmpty.filter(record => record.duplicate).length, 0);
+
+const duplicateReferenceRecords = statementImport.buildRecords({
+  rows: [
+    ['Date', 'Description', 'Amount', 'Ref No'],
+    ['2026-10-02', 'Chai break', '-20', 'REF-SAME'],
+    ['2026-10-02', 'Chai break', '-20', 'REF-SAME']
+  ],
+  headerRow: 0,
+  mapping: { date: 0, description: 1, debit: null, credit: null, amount: 2, reference: 3, balance: null, indicator: null },
+  amountMode: 'signed'
+});
+const duplicateReferenceFlags = statementImport.annotateDuplicates(duplicateReferenceRecords.records, []);
+assert.strictEqual(duplicateReferenceFlags.filter(record => record.duplicate).length, 2);
+assert.ok(/more than once in this file/i.test(duplicateReferenceFlags[0].duplicateReason));
+
+const existingForDuplicates = [{
+  id: 'tx-existing-1',
+  type: 'expense',
+  amount: 350,
+  date: '2026-10-02',
+  category: 'Food',
+  desc: 'Campus cafe, lunch',
+  payment: 'UPI',
+  importRef: 'REF-001'
+}];
+const duplicateAgainstExisting = statementImport.annotateDuplicates([debitCreditRecords.records[0]], existingForDuplicates);
+assert.strictEqual(duplicateAgainstExisting[0].duplicate, true);
+assert.ok(/Reference matches/i.test(duplicateAgainstExisting[0].duplicateReason));
+assert.ok(/Same date, amount, type, and description/i.test(duplicateAgainstExisting[0].duplicateReason));
+
+const firstImport = statementImport.buildImportedTransactions(debitCreditRecords.records, [], { now: 1700000000000 });
+const reimportFlags = statementImport.annotateDuplicates(debitCreditRecords.records, firstImport.transactions);
+assert.strictEqual(reimportFlags.filter(record => record.duplicate).length, 4, 'Re-importing all rows must flag every row');
+assert.strictEqual(reimportFlags.length, 4, 'Duplicate flags must not discard rows');
+
+const htmlCsv = 'Date,Description,Amount\n2026-10-02,"<img src=x onerror=alert(1)> Synthetic",-99\n';
+const parsedHtml = statementImport.parseCsv(htmlCsv);
+const htmlMapping = statementImport.detectColumnMapping(parsedHtml.rows[0]);
+const htmlRecord = statementImport.buildRecords({
+  rows: parsedHtml.rows,
+  rowNumbers: parsedHtml.rowNumbers,
+  mapping: htmlMapping.mapping,
+  amountMode: 'signed'
+}).records[0];
+assert.strictEqual(htmlRecord.description, '<img src=x onerror=alert(1)> Synthetic');
+const htmlTransaction = statementImport.toCentsibleTransaction(htmlRecord, 'tx-html-test');
+assert.strictEqual(htmlTransaction.desc, '<img src=x onerror=alert(1)> Synthetic');
+assert.strictEqual(htmlTransaction.payment, 'Bank');
+
+console.log('✓ Test 17 Passed: Reference/composite duplicates, repeats, re-imports, and HTML-like descriptions verified.\n');
+
+// -----------------------------------------------------------------------------
+// TEST 18: Merge, Persistence, Totals & Existing-Data Preservation
+// -----------------------------------------------------------------------------
+console.log('[Test 18] Verifying atomic merge, totals, unique IDs, and preservation of existing state...');
+
+const existingStateForImport = {
+  version: 1,
+  baseAllowance: 12000,
+  budgets: { Food: 4500, Travel: 1800, Shopping: 2000, Education: 1500, Entertainment: 1500, Other: 1000 },
+  transactions: [
+    { id: 'tx-existing-a', type: 'income', amount: 12000, date: '2026-10-01', category: 'Allowance', desc: 'Synthetic allowance', payment: 'UPI' },
+    { id: 'tx-existing-b', type: 'expense', amount: 350, date: '2026-10-02', category: 'Food', desc: 'Synthetic lunch', payment: 'UPI' }
+  ],
+  goals: [{ id: 'goal-existing', name: 'Synthetic Goal', target: 10000, current: 2500, targetDate: '2026-12-31' }]
+};
+
+const importCsv = [
+  'Date,Description,Amount,Ref No',
+  '2026-10-05,Synthetic book,-200,REF-BOOK',
+  '2026-10-06,Synthetic freelance,500,REF-FREE'
+].join('\n');
+const parsedImport = statementImport.parseCsv(importCsv);
+const importMapping = statementImport.detectColumnMapping(parsedImport.rows[0]);
+const importRecords = statementImport.buildRecords({
+  rows: parsedImport.rows,
+  rowNumbers: parsedImport.rowNumbers,
+  mapping: importMapping.mapping,
+  amountMode: 'signed'
+}).records;
+
+const builtImport = statementImport.buildImportedTransactions(importRecords, existingStateForImport.transactions, { now: 1700000000000 });
+assert.strictEqual(builtImport.transactions.length, 2);
+assert.strictEqual(builtImport.rejected.length, 0);
+assert.strictEqual(builtImport.transactions[0].id, 'tx-1700000000000-1');
+assert.strictEqual(builtImport.transactions[0].payment, 'Bank');
+assert.strictEqual(builtImport.transactions[0].importRef, 'REF-BOOK');
+
+const mergedTransactions = statementImport.mergeImportedTransactions(existingStateForImport.transactions, builtImport.transactions);
+assert.strictEqual(mergedTransactions.length, 4);
+assert.ok(mergedTransactions.some(transaction => transaction.id === 'tx-existing-a'));
+assert.ok(mergedTransactions.some(transaction => transaction.id === 'tx-existing-b'));
+assert.strictEqual(existingStateForImport.transactions.length, 2, 'Merge helper must not mutate existing transactions');
+
+const mergedState = { ...existingStateForImport, transactions: mergedTransactions };
+assert.deepStrictEqual(mergedState.budgets, existingStateForImport.budgets, 'Budgets must remain unchanged');
+assert.deepStrictEqual(mergedState.goals, existingStateForImport.goals, 'Goals must remain unchanged');
+assert.strictEqual(mergedState.baseAllowance, 12000, 'Allowance must remain unchanged');
+
+const finAfterImport = calculateMonthFinancials(mergedTransactions, 12000, 2026, 9);
+assert.strictEqual(finAfterImport.totalIncome, 12500);
+assert.strictEqual(finAfterImport.totalExpense, 550);
+assert.strictEqual(finAfterImport.remainingBudget, 11950);
+assert.strictEqual(finAfterImport.categoryExpenses.Food, 350);
+assert.strictEqual(finAfterImport.categoryExpenses.Education, 200);
+
+const invalidImported = statementImport.buildImportedTransactions([
+  { ...importRecords[0], amount: 0 }
+], existingStateForImport.transactions, { now: 1700000000000 });
+assert.strictEqual(invalidImported.transactions.length, 0);
+assert.strictEqual(invalidImported.rejected.length, 1);
+
+global.localStorage.setItem('centsible_state_v1', JSON.stringify(mergedState));
+const reloadedImportState = JSON.parse(global.localStorage.getItem('centsible_state_v1'));
+assert.strictEqual(reloadedImportState.transactions.length, 4);
+assert.strictEqual(reloadedImportState.budgets.Food, 4500);
+assert.strictEqual(reloadedImportState.goals[0].name, 'Synthetic Goal');
+assert.strictEqual(reloadedImportState.transactions.find(transaction => transaction.importRef === 'REF-BOOK').amount, 200);
+
+const summaryCounts = statementImport.summarizeRecords([
+  { valid: true, duplicate: false },
+  { valid: true, duplicate: true },
+  { valid: false, duplicate: false }
+], [0, 1]);
+assert.deepStrictEqual(summaryCounts, {
+  total: 3,
+  valid: 2,
+  invalid: 1,
+  duplicates: 1,
+  selected: 2,
+  skipped: 1
+});
+
+console.log('✓ Test 18 Passed: Merge preserves transactions/budgets/goals, recalcs totals, and persists imported records.\n');
+
 console.log('====================================================');
-console.log('   ALL 12 VERIFICATION TEST SUITES PASSED (100%)    ');
+console.log('   ALL 18 VERIFICATION TEST SUITES PASSED (100%)    ');
 console.log('====================================================');

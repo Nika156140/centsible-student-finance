@@ -1,10 +1,11 @@
 /**
  * Centsible — Bank Statement Import Core
- * Pure, dependency-free CSV parsing and normalization helpers.
+ * Pure, dependency-free parsing, normalization, validation, and merge helpers.
  *
- * This module deliberately contains no DOM or localStorage access so it can be
- * tested in Node and reused by a future PDF parser that emits the same
- * { headers, rows } intermediate shape.
+ * CSV parsing lives here. statement_pdf.js extracts text-based PDF tables and
+ * feeds the same { headers, rows } shape into this shared pipeline. This module
+ * deliberately contains no DOM or localStorage access so it remains testable
+ * in Node.
  */
 
 (function (root, factory) {
@@ -147,11 +148,7 @@
     const mime = String(mimeType || '').toLowerCase();
 
     if (name.endsWith('.pdf') || mime === 'application/pdf') {
-      return {
-        ok: false,
-        format: 'pdf',
-        error: 'PDF bank statements are not supported yet. Please export a CSV statement from your bank.'
-      };
+      return { ok: true, format: 'pdf' };
     }
 
     if (name.endsWith('.csv') || mime === 'text/csv') {
@@ -161,7 +158,7 @@
     return {
       ok: false,
       format: 'unsupported',
-      error: 'Please choose a .csv file exported from your bank.'
+      error: 'Please choose a .csv or text-based .pdf bank statement.'
     };
   }
 

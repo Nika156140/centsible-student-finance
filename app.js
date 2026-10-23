@@ -219,6 +219,9 @@
   function createEmptyStatementImportState() {
     return {
       fileName: '',
+      sourceFormat: 'csv',
+      pageCount: 0,
+      extractionWarnings: [],
       rows: [],
       rowNumbers: [],
       headers: [],
@@ -238,7 +241,8 @@
       amountMode: '',
       records: [],
       selected: new Set(),
-      step: 1
+      step: 1,
+      isProcessing: false
     };
   }
 
@@ -2108,6 +2112,16 @@
     const metaEl = document.getElementById('statementParseMeta');
     if (!metaEl) return;
     const dataRows = Math.max(0, statementImport.rows.length - statementImport.headerRowIndex - 1);
+
+    if (statementImport.sourceFormat === 'pdf') {
+      const pages = statementImport.pageCount || 0;
+      const warningText = statementImport.extractionWarnings.length > 0
+        ? ` · ${statementImport.extractionWarnings.join(' · ')}`
+        : '';
+      metaEl.textContent = `${dataRows} data row${dataRows === 1 ? '' : 's'} · ${pages} page${pages === 1 ? '' : 's'} · text-based PDF${warningText}`;
+      return;
+    }
+
     metaEl.textContent = `${dataRows} data row${dataRows === 1 ? '' : 's'} · ${statementImport.delimiterLabel} delimiter · header row ${statementImport.headerRowIndex + 1}`;
   }
 
@@ -2244,7 +2258,7 @@
     if (!nextBtn) return;
 
     if (statementImport.step === 1) {
-      nextBtn.textContent = 'Select a CSV';
+      nextBtn.textContent = 'Select a file';
       nextBtn.disabled = true;
       return;
     }
@@ -2331,16 +2345,22 @@
     statementImport = createEmptyStatementImportState();
 
     const fileInput = document.getElementById('statementFileInput');
-    if (fileInput) fileInput.value = '';
+    if (fileInput) {
+      fileInput.value = '';
+      fileInput.disabled = false;
+    }
 
     const fileNameEl = document.getElementById('statementFileName');
     if (fileNameEl) fileNameEl.textContent = 'No file selected';
 
     const parseMetaEl = document.getElementById('statementParseMeta');
-    if (parseMetaEl) parseMetaEl.textContent = 'Parse a CSV to begin.';
+    if (parseMetaEl) parseMetaEl.textContent = 'Parse a CSV or PDF to begin.';
 
     const headerRowInput = document.getElementById('statementHeaderRowInput');
     if (headerRowInput) headerRowInput.value = '1';
+
+    const headerRowControl = document.getElementById('statementHeaderRowControl');
+    if (headerRowControl) headerRowControl.classList.remove('hidden');
 
     const dateFormatEl = document.getElementById('statementDateFormat');
     if (dateFormatEl) dateFormatEl.value = 'auto';
@@ -2395,6 +2415,171 @@
     closeModal('statementImportModal');
   }
 
+  function setStatementFileInputBusy(isBusy) {
+    statementImport.isProcessing = !!isBusy;
+    const input = document.getElementById('statementFileInput');
+    if (input) input.disabled = !!isBusy;
+  }
+
+  function clearStatementFileInput() {
+    const input = document.getElementById('statementFileInput');
+    if (input) input.value = '';
+  }
+
+  function applyParsedStatement(parsed, file, sourceFormat) {
+    const core = getStatementImportCore();
+    if (!core) {
+      showStatementImportError('The statement import module did not load. Refresh the page and try again.');
+      return;
+    }
+
+    const detectedHeader = core.findHeaderRow(parsed.rows || []);
+    const headerIndex = Number.isInteger(parsed.headerRowIndex) ? parsed.headerRowIndex : detectedHeader.index;
+    const headerCells = parsed.rows && parsed.rows[headerIndex] ? parsed.rows[headerIndex] : [];
+
+    if (!headerCells.some(cell => core.cleanText(cell) !== '')) {
+      showStatementImportError(
+        sourceFormat === 'pdf'
+          ? 'The PDF table header could not be read.'
+          : 'Could not find a header row in this CSV.'
+      );
+      setStatementFileInputBusy(false);
+      clearStatementFileInput();
+      return;
+    }
+
+    const dataRows = parsed.rows.length - headerIndex - 1;
+    if (dataRows <= 0) {
+      showStatementImportError('No transaction rows were found after the header row.');
+      setStatementFileInputBusy(false);
+      clearStatementFileInput();
+      return;
+    }
+
+    statementImport.fileName = file.name;
+    statementImport.sourceFormat = sourceFormat;
+    statementImport.pageCount = parsed.pageCount || 0;
+    statementImport.extractionWarnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+    statementImport.rows = parsed.rows;
+    statementImport.rowNumbers = parsed.rowNumbers;
+    statementImport.headerRowIndex = headerIndex;
+    statementImport.delimiterLabel = parsed.delimiterLabel || (sourceFormat === 'pdf' ? 'PDF' : 'Comma');
+    statementImport.headers = core.getHeaderLabels(headerCells);
+
+    const headerRowInput = document.getElementById('statementHeaderRowInput');
+    if (headerRowInput) headerRowInput.value = String(headerIndex + 1);
+
+    const headerRowControl = document.getElementById('statementHeaderRowControl');
+    if (headerRowControl) headerRowControl.classList.toggle('hidden', sourceFormat === 'pdf');
+
+    const fileNameEl = document.getElementById('statementFileName');
+    if (fileNameEl) fileNameEl.textContent = `${file.name} · ${formatFileSize(file.size)}`;
+
+    setStatementFileInputBusy(false);
+    updateStatementParseMeta();
+    applyStatementAutoMapping();
+    setStatementImportStep(2);
+    clearStatementImportError();
+    clearStatementFileInput();
+  }
+
+  function handleCsvStatementFile(file, session) {
+    const core = getStatementImportCore();
+    if (!core) return;
+
+    setStatementFileInputBusy(true);
+    const reader = new FileReader();
+
+    reader.onload = function (event) {
+      if (session !== statementImport) return;
+      try {
+        const text = core.decodeStatementBuffer(event.target.result);
+        const parsed = core.parseCsv(text);
+
+        if (!parsed.ok) {
+          showStatementImportError(parsed.error);
+          setStatementFileInputBusy(false);
+          clearStatementFileInput();
+          return;
+        }
+
+        applyParsedStatement(parsed, file, 'csv');
+      } catch (err) {
+        showStatementImportError('This CSV could not be parsed. Check the file and try again.');
+        setStatementFileInputBusy(false);
+        clearStatementFileInput();
+      }
+    };
+
+    reader.onerror = function () {
+      if (session !== statementImport) return;
+      showStatementImportError('The selected CSV file could not be read.');
+      setStatementFileInputBusy(false);
+      clearStatementFileInput();
+    };
+
+    reader.readAsArrayBuffer(file);
+  }
+
+  function handlePdfStatementFile(file, session) {
+    const pdfCore = window.CentsibleStatementPdf;
+    if (!pdfCore) {
+      showStatementImportError('PDF support is unavailable. Refresh the page and try again.');
+      setStatementFileInputBusy(false);
+      return;
+    }
+
+    setStatementFileInputBusy(true);
+    clearStatementImportError();
+
+    const fileNameEl = document.getElementById('statementFileName');
+    if (fileNameEl) fileNameEl.textContent = `${file.name} · ${formatFileSize(file.size)} · extracting text…`;
+
+    const reader = new FileReader();
+
+    reader.onload = function (event) {
+      if (session !== statementImport) return;
+
+      pdfCore.extractPdfStatement(event.target.result)
+        .then(result => {
+          if (session !== statementImport) return;
+
+          if (!result.ok) {
+            showStatementImportError(result.error);
+            if (fileNameEl) fileNameEl.textContent = `${file.name} · ${formatFileSize(file.size)}`;
+            setStatementFileInputBusy(false);
+            clearStatementFileInput();
+            return;
+          }
+
+          applyParsedStatement({
+            rows: result.rows,
+            rowNumbers: result.rowNumbers,
+            headerRowIndex: result.headerRowIndex,
+            pageCount: result.pageCount,
+            warnings: result.warnings,
+            delimiterLabel: 'PDF'
+          }, file, 'pdf');
+        })
+        .catch(() => {
+          if (session !== statementImport) return;
+          showStatementImportError('PDF text extraction failed. Please try another text-based PDF or export a CSV.');
+          if (fileNameEl) fileNameEl.textContent = `${file.name} · ${formatFileSize(file.size)}`;
+          setStatementFileInputBusy(false);
+          clearStatementFileInput();
+        });
+    };
+
+    reader.onerror = function () {
+      if (session !== statementImport) return;
+      showStatementImportError('The selected PDF file could not be read.');
+      setStatementFileInputBusy(false);
+      clearStatementFileInput();
+    };
+
+    reader.readAsArrayBuffer(file);
+  }
+
   function handleStatementFile(file) {
     if (!file) return;
 
@@ -2405,6 +2590,8 @@
     }
 
     resetStatementImportSession();
+    const session = statementImport;
+
     const fileNameEl = document.getElementById('statementFileName');
     if (fileNameEl) fileNameEl.textContent = file.name;
 
@@ -2414,8 +2601,17 @@
       return;
     }
 
-    if (file.size > core.MAX_FILE_BYTES) {
-      showStatementImportError(`This file is too large. Please choose a CSV under ${formatFileSize(core.MAX_FILE_BYTES)}.`);
+    const pdfCore = format.format === 'pdf' ? window.CentsibleStatementPdf : null;
+    if (format.format === 'pdf' && !pdfCore) {
+      showStatementImportError('PDF support is unavailable. Refresh the page and try again.');
+      return;
+    }
+
+    const maxBytes = format.format === 'pdf' ? pdfCore.MAX_PDF_BYTES : core.MAX_FILE_BYTES;
+    if (file.size > maxBytes) {
+      showStatementImportError(
+        `This file is too large. Please choose ${format.format === 'pdf' ? 'a PDF' : 'a CSV'} under ${formatFileSize(maxBytes)}.`
+      );
       return;
     }
 
@@ -2426,66 +2622,17 @@
 
     if (fileNameEl) fileNameEl.textContent = `${file.name} · ${formatFileSize(file.size)}`;
 
-    const reader = new FileReader();
-    reader.onload = function (event) {
-      try {
-        const text = core.decodeStatementBuffer(event.target.result);
-        const parsed = core.parseCsv(text);
-
-        if (!parsed.ok) {
-          showStatementImportError(parsed.error);
-          const input = document.getElementById('statementFileInput');
-          if (input) input.value = '';
-          return;
-        }
-
-        const header = core.findHeaderRow(parsed.rows);
-        const headerCells = parsed.rows[header.index] || [];
-        if (!headerCells.some(cell => core.cleanText(cell) !== '')) {
-          showStatementImportError('Could not find a header row in this CSV.');
-          return;
-        }
-
-        const dataRows = parsed.rows.length - header.index - 1;
-        if (dataRows <= 0) {
-          showStatementImportError('No transaction rows were found after the header row.');
-          return;
-        }
-
-        statementImport.fileName = file.name;
-        statementImport.rows = parsed.rows;
-        statementImport.rowNumbers = parsed.rowNumbers;
-        statementImport.headerRowIndex = header.index;
-        statementImport.delimiterLabel = parsed.delimiterLabel;
-        statementImport.headers = core.getHeaderLabels(headerCells);
-
-        const headerRowInput = document.getElementById('statementHeaderRowInput');
-        if (headerRowInput) headerRowInput.value = String(header.index + 1);
-
-        updateStatementParseMeta();
-        applyStatementAutoMapping();
-        setStatementImportStep(2);
-        clearStatementImportError();
-
-        const input = document.getElementById('statementFileInput');
-        if (input) input.value = '';
-      } catch (err) {
-        showStatementImportError('This CSV could not be parsed. Check the file and try again.');
-        const input = document.getElementById('statementFileInput');
-        if (input) input.value = '';
-      }
-    };
-
-    reader.onerror = function () {
-      showStatementImportError('The selected file could not be read.');
-    };
-
-    reader.readAsArrayBuffer(file);
+    if (format.format === 'pdf') {
+      handlePdfStatementFile(file, session);
+    } else {
+      handleCsvStatementFile(file, session);
+    }
   }
 
   function handleStatementHeaderRowChange() {
     const input = document.getElementById('statementHeaderRowInput');
     if (!input || statementImport.rows.length === 0) return;
+    if (statementImport.sourceFormat === 'pdf') return;
 
     const value = Number(input.value);
     if (!Number.isInteger(value) || value < 1 || value > statementImport.rows.length) {

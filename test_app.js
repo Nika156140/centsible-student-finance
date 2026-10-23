@@ -12,11 +12,15 @@
  * 9. Backup JSON export and import validation
  * 10. Boundary inputs & negative amount validations
  * 11. Responsive CSS rules & media query structure
+ * 12. CSV statement import parsing, normalization, and persistence
+ * 13. PDF text-line/table reconstruction and multipage handling
+ * 14. Local PDF.js assets, synthetic PDF fixtures, licensing, and limits
  */
 
 const fs = require('fs');
 const assert = require('assert');
 const statementImport = require('./statement_import.js');
+const statementPdf = require('./statement_pdf.js');
 
 console.log('====================================================');
 console.log('   CENTSIBLE VERIFICATION & REGRESSION TEST SUITE   ');
@@ -30,18 +34,29 @@ assert.ok(fs.existsSync('index.html'), 'index.html must exist');
 assert.ok(fs.existsSync('styles.css'), 'styles.css must exist');
 assert.ok(fs.existsSync('app.js'), 'app.js must exist');
 assert.ok(fs.existsSync('statement_import.js'), 'statement_import.js must exist');
+assert.ok(fs.existsSync('statement_pdf.js'), 'statement_pdf.js must exist');
+assert.ok(fs.existsSync('vendor/pdfjs/pdf.min.mjs'), 'local PDF.js module must exist');
+assert.ok(fs.existsSync('vendor/pdfjs/pdf.worker.min.mjs'), 'local PDF.js worker must exist');
+assert.ok(fs.existsSync('vendor/pdfjs/LICENSE'), 'PDF.js license must exist');
 assert.ok(fs.existsSync('README.md'), 'README.md must exist');
 
 const htmlContent = fs.readFileSync('index.html', 'utf8');
 const cssContent = fs.readFileSync('styles.css', 'utf8');
 const jsContent = fs.readFileSync('app.js', 'utf8');
 const importContent = fs.readFileSync('statement_import.js', 'utf8');
+const pdfContent = fs.readFileSync('statement_pdf.js', 'utf8');
+const pdfLicenseContent = fs.readFileSync('vendor/pdfjs/LICENSE', 'utf8');
 
 // Ensure stylesheet and scripts are linked in index.html
 assert.ok(htmlContent.includes('<link rel="stylesheet" href="styles.css">'), 'index.html must link styles.css');
 assert.ok(htmlContent.includes('<script src="statement_import.js"></script>'), 'index.html must link statement_import.js');
+assert.ok(htmlContent.includes('<script src="statement_pdf.js"></script>'), 'index.html must link statement_pdf.js');
 assert.ok(htmlContent.includes('<script src="app.js"></script>'), 'index.html must link app.js');
 assert.ok(importContent.includes('CentsibleStatementImport'), 'statement_import.js must expose the browser API');
+assert.ok(pdfContent.includes('CentsibleStatementPdf'), 'statement_pdf.js must expose the browser API');
+assert.ok(pdfContent.includes('vendor/pdfjs/pdf.min.mjs'), 'statement_pdf.js must use the local PDF.js module');
+assert.ok(pdfContent.includes('vendor/pdfjs/pdf.worker.min.mjs'), 'statement_pdf.js must use the local PDF.js worker');
+assert.ok(/Apache License/i.test(pdfLicenseContent), 'PDF.js LICENSE must contain the Apache license');
 
 // Confirm no external CDNs or remote dependencies
 assert.ok(!/<script[^>]+src=["']https?:/i.test(htmlContent), 'No external scripts allowed');
@@ -656,9 +671,8 @@ assert.ok(missingDateMapping.missingRequired.includes('date'));
 const csvFormat = statementImport.detectFileFormat('synthetic_statement.csv', 'text/csv');
 assert.strictEqual(csvFormat.ok, true);
 const pdfFormat = statementImport.detectFileFormat('synthetic_statement.pdf', 'application/pdf');
-assert.strictEqual(pdfFormat.ok, false);
+assert.strictEqual(pdfFormat.ok, true);
 assert.strictEqual(pdfFormat.format, 'pdf');
-assert.ok(/not supported yet/i.test(pdfFormat.error));
 assert.strictEqual(statementImport.detectFileFormat('synthetic_statement.xlsx', 'application/vnd.ms-excel').ok, false);
 assert.strictEqual(statementImport.MAX_FILE_BYTES, 2 * 1024 * 1024);
 assert.strictEqual(statementImport.MAX_RECORDS, 2000);
@@ -834,6 +848,386 @@ assert.deepStrictEqual(summaryCounts, {
 
 console.log('✓ Test 18 Passed: Merge preserves transactions/budgets/goals, recalcs totals, and persists imported records.\n');
 
+// -----------------------------------------------------------------------------
+// TEST 19: PDF Text-Line Grouping, Header Reconstruction & Multipage Rows
+// -----------------------------------------------------------------------------
+console.log('[Test 19] Verifying PDF line grouping, column reconstruction, wrapped text, and multipage tables...');
+
+function pdfItem(str, x, y, width) {
+  return { str, x, y, width, height: 9 };
+}
+
+const pdfPageOneItems = [
+  pdfItem('Date', 50, 770, 22),
+  pdfItem('Narration', 120, 770, 50),
+  pdfItem('Debit', 330, 770, 26),
+  pdfItem('Credit', 400, 770, 30),
+  pdfItem('Balance', 480, 770, 35),
+  pdfItem('Ref No', 555, 770, 30),
+  pdfItem('02/10/2026', 50, 748, 55),
+  pdfItem('Campus cafe, lunch', 120, 748, 95),
+  pdfItem('350.00', 330, 748, 30),
+  pdfItem('12,000.00', 480, 748, 50),
+  pdfItem('REF-001', 555, 748, 40),
+  pdfItem('05-Oct-2026', 50, 728, 60),
+  pdfItem('Synthetic freelance stipend', 120, 728, 120),
+  pdfItem('2,500.00', 400, 728, 40),
+  pdfItem('14,500.00', 480, 728, 50),
+  pdfItem('SYN-002', 555, 728, 40),
+  pdfItem('07/10/2026', 50, 708, 55),
+  pdfItem('Synthetic online course purchase', 120, 708, 125),
+  pdfItem('1,234.50', 330, 708, 40),
+  pdfItem('12,865.50', 480, 708, 50),
+  pdfItem('SYN-003', 555, 708, 40),
+  pdfItem('with wrapped synthetic description', 120, 696, 135)
+];
+
+const pdfPageTwoItems = [
+  pdfItem('Date', 50, 770, 22),
+  pdfItem('Narration', 120, 770, 50),
+  pdfItem('Debit', 330, 770, 26),
+  pdfItem('Credit', 400, 770, 30),
+  pdfItem('Balance', 480, 770, 35),
+  pdfItem('Ref No', 555, 770, 30),
+  pdfItem('08/10/2026', 50, 748, 55),
+  pdfItem('Synthetic page two book', 120, 748, 100),
+  pdfItem('850.00', 330, 748, 30),
+  pdfItem('13,250.00', 480, 748, 50),
+  pdfItem('SYN-004', 555, 748, 40)
+];
+
+const groupedPdfLines = statementPdf.groupTextItemsByLine(pdfPageOneItems, 3.5);
+assert.strictEqual(groupedPdfLines.length, 5, 'Five visual lines expected on page one');
+assert.strictEqual(groupedPdfLines[0].items[0].str, 'Date');
+
+const mergedHeaderCells = statementPdf.mergeLineItemsByGap([
+  pdfItem('Withdrawal', 100, 770, 45),
+  pdfItem('Amt', 147, 770, 16),
+  pdfItem('350.00', 330, 770, 30)
+], 8);
+assert.strictEqual(mergedHeaderCells.length, 2, 'Small gaps must merge within a header cell');
+assert.strictEqual(mergedHeaderCells[0].text, 'Withdrawal Amt');
+
+const assembledMultipage = statementPdf.assembleTableFromPages([
+  { pageNumber: 1, items: pdfPageOneItems },
+  { pageNumber: 2, items: pdfPageTwoItems }
+]);
+assert.strictEqual(assembledMultipage.ok, true);
+assert.strictEqual(assembledMultipage.pageCount, 2);
+assert.strictEqual(assembledMultipage.rows.length, 5, 'Header plus four data rows expected');
+assert.strictEqual(assembledMultipage.rows[0][0], 'Date');
+assert.strictEqual(assembledMultipage.rows[0][5], 'Ref No');
+assert.strictEqual(assembledMultipage.rows[3][1], 'Synthetic online course purchase with wrapped synthetic description');
+assert.strictEqual(assembledMultipage.rows[4][1], 'Synthetic page two book');
+
+const pdfMapping = statementImport.detectColumnMapping(assembledMultipage.rows[0]);
+assert.strictEqual(pdfMapping.mapping.date, 0);
+assert.strictEqual(pdfMapping.mapping.description, 1);
+assert.strictEqual(pdfMapping.mapping.debit, 2);
+assert.strictEqual(pdfMapping.mapping.credit, 3);
+assert.strictEqual(pdfMapping.mapping.balance, 4);
+assert.strictEqual(pdfMapping.mapping.reference, 5);
+
+const assembledPdfRecords = statementImport.buildRecords({
+  rows: assembledMultipage.rows,
+  rowNumbers: assembledMultipage.rowNumbers,
+  headerRowIndex: 0,
+  mapping: pdfMapping.mapping,
+  amountMode: 'separate'
+});
+assert.strictEqual(assembledPdfRecords.ok, true);
+assert.strictEqual(assembledPdfRecords.records.length, 4);
+assert.strictEqual(assembledPdfRecords.records[0].amount, 350, 'Balance must not be used as the transaction amount');
+assert.strictEqual(assembledPdfRecords.records[0].balance, '12,000.00');
+assert.strictEqual(assembledPdfRecords.records[1].type, 'income');
+assert.strictEqual(assembledPdfRecords.records[1].amount, 2500);
+assert.strictEqual(assembledPdfRecords.records[2].amount, 1234.5);
+assert.strictEqual(assembledPdfRecords.records[2].category, 'Education');
+assert.strictEqual(assembledPdfRecords.records[3].amount, 850);
+assert.strictEqual(assembledPdfRecords.records[3].reference, 'SYN-004');
+
+const pdfTransaction = statementImport.toCentsibleTransaction(assembledPdfRecords.records[0], 'tx-pdf-test');
+assert.strictEqual(pdfTransaction.payment, 'Bank');
+assert.strictEqual(pdfTransaction.importRef, 'REF-001');
+assert.strictEqual(pdfTransaction.amount, 350);
+
+console.log('✓ Test 19 Passed: PDF lines, header columns, wrapped descriptions, multipage rows, references, and balance exclusion verified.\n');
+
+// -----------------------------------------------------------------------------
+// TEST 20: PDF Ambiguity, Invalid Rows, Cover Pages & Safe Text
+// -----------------------------------------------------------------------------
+console.log('[Test 20] Verifying PDF ambiguity, invalid rows, cover pages, unsupported layouts, and safe text...');
+
+const ambiguousPdfItems = [
+  pdfItem('Date', 50, 770, 22),
+  pdfItem('Description', 120, 770, 55),
+  pdfItem('Amount', 350, 770, 35),
+  pdfItem('02/10/2026', 50, 748, 55),
+  pdfItem('Synthetic unsigned purchase', 120, 748, 120),
+  pdfItem('850.00', 350, 748, 35)
+];
+const ambiguousPdfTable = statementPdf.assembleTableFromPages([
+  { pageNumber: 1, items: ambiguousPdfItems }
+]);
+assert.strictEqual(ambiguousPdfTable.ok, true);
+const ambiguousPdfMapping = statementImport.detectColumnMapping(ambiguousPdfTable.rows[0]);
+const ambiguousPdfBuild = statementImport.buildRecords({
+  rows: ambiguousPdfTable.rows,
+  rowNumbers: ambiguousPdfTable.rowNumbers,
+  headerRowIndex: 0,
+  mapping: ambiguousPdfMapping.mapping,
+  amountMode: ''
+});
+assert.strictEqual(ambiguousPdfBuild.ok, false, 'A single unsigned PDF amount must require explicit interpretation');
+
+const invalidPdfItems = [
+  pdfItem('Date', 50, 770, 22),
+  pdfItem('Description', 120, 770, 55),
+  pdfItem('Amount', 350, 770, 35),
+  pdfItem('31/02/2026', 50, 748, 55),
+  pdfItem('Synthetic impossible date', 120, 748, 110),
+  pdfItem('-100.00', 350, 748, 35),
+  pdfItem('not-a-date', 50, 728, 55),
+  pdfItem('Synthetic invalid date text', 120, 728, 110),
+  pdfItem('-50.00', 350, 728, 35),
+  pdfItem('2026-10-02', 50, 708, 55),
+  pdfItem('Synthetic good row', 120, 708, 80),
+  pdfItem('-10.00', 350, 708, 35)
+];
+const invalidPdfTable = statementPdf.assembleTableFromPages([
+  { pageNumber: 1, items: invalidPdfItems }
+]);
+assert.strictEqual(invalidPdfTable.ok, true);
+assert.strictEqual(invalidPdfTable.rows.length, 4, 'Header plus three suspicious rows must remain visible');
+const invalidPdfMapping = statementImport.detectColumnMapping(invalidPdfTable.rows[0]);
+const invalidPdfBuild = statementImport.buildRecords({
+  rows: invalidPdfTable.rows,
+  rowNumbers: invalidPdfTable.rowNumbers,
+  headerRowIndex: 0,
+  mapping: invalidPdfMapping.mapping,
+  amountMode: 'signed'
+});
+assert.strictEqual(invalidPdfBuild.counts.invalid, 2);
+assert.strictEqual(invalidPdfBuild.counts.valid, 1);
+
+const coverPdfItemsPageOne = [
+  pdfItem('Synthetic Student Bank', 50, 805, 100),
+  pdfItem('Fictional cover page', 50, 788, 90)
+];
+const coverPdfTable = statementPdf.assembleTableFromPages([
+  { pageNumber: 1, items: coverPdfItemsPageOne },
+  { pageNumber: 2, items: pdfPageTwoItems }
+]);
+assert.strictEqual(coverPdfTable.ok, true);
+assert.strictEqual(coverPdfTable.rows.length, 2);
+assert.ok(coverPdfTable.warnings.some(warning => /before the transaction table/i.test(warning)));
+
+const noHeaderPdfTable = statementPdf.assembleTableFromPages([
+  {
+    pageNumber: 1,
+    items: [
+      pdfItem('02/10/2026', 50, 748, 55),
+      pdfItem('No header row', 120, 748, 70),
+      pdfItem('100.00', 350, 748, 35)
+    ]
+  }
+]);
+assert.strictEqual(noHeaderPdfTable.ok, false);
+assert.strictEqual(noHeaderPdfTable.code, 'unsupported-layout');
+
+const htmlPdfItems = [
+  pdfItem('Date', 50, 770, 22),
+  pdfItem('Description', 120, 770, 55),
+  pdfItem('Amount', 350, 770, 35),
+  pdfItem('2026-10-02', 50, 748, 55),
+  pdfItem('<img src=x onerror=alert(1)> Synthetic', 120, 748, 180),
+  pdfItem('-99.00', 350, 748, 35)
+];
+const htmlPdfTable = statementPdf.assembleTableFromPages([
+  { pageNumber: 1, items: htmlPdfItems }
+]);
+const htmlPdfRecord = statementImport.buildRecords({
+  rows: htmlPdfTable.rows,
+  rowNumbers: htmlPdfTable.rowNumbers,
+  headerRowIndex: 0,
+  mapping: statementImport.detectColumnMapping(htmlPdfTable.rows[0]).mapping,
+  amountMode: 'signed'
+}).records[0];
+assert.strictEqual(htmlPdfRecord.description, '<img src=x onerror=alert(1)> Synthetic');
+assert.strictEqual(statementImport.toCentsibleTransaction(htmlPdfRecord, 'tx-pdf-html').desc, '<img src=x onerror=alert(1)> Synthetic');
+
+assert.strictEqual(statementPdf.isFooterLine('Page 1 of 2'), true);
+assert.strictEqual(statementPdf.isFooterLine('Synthetic Cafe'), false);
+assert.strictEqual(statementPdf.hasDateLikeText('02/10/2026 Synthetic Cafe'), true);
+assert.strictEqual(statementPdf.hasDateLikeText('No date here'), false);
+
+console.log('✓ Test 20 Passed: PDF ambiguity, invalid-row visibility, cover pages, unsupported layouts, and safe text verified.\n');
+
+// -----------------------------------------------------------------------------
+// TEST 21: PDF Fixtures, Vendor Assets, License & Limits
+// -----------------------------------------------------------------------------
+console.log('[Test 21] Verifying synthetic PDF fixtures, local PDF.js assets, license, and limits...');
+
+const pdfFixtures = [
+  'synthetic-debit-credit.pdf',
+  'synthetic-signed-amount.pdf',
+  'synthetic-indicator.pdf',
+  'synthetic-ambiguous.pdf',
+  'synthetic-invalid.pdf',
+  'synthetic-multipage.pdf',
+  'synthetic-cover-page.pdf',
+  'synthetic-no-header.pdf',
+  'synthetic-scanned.pdf',
+  'synthetic-encrypted.pdf',
+  'synthetic-corrupt.pdf',
+  'synthetic-many-pages.pdf',
+  'synthetic-date-time-multiline.pdf'
+];
+
+pdfFixtures.forEach(name => {
+  const file = `test_fixtures/${name}`;
+  assert.ok(fs.existsSync(file), `${name} must exist`);
+  const size = fs.statSync(file).size;
+  assert.ok(size > 0, `${name} must not be empty`);
+  assert.ok(size < 50 * 1024, `${name} must stay small (under 50 KB)`);
+});
+
+assert.ok(fs.statSync('vendor/pdfjs/pdf.min.mjs').size > 100 * 1024);
+assert.ok(fs.statSync('vendor/pdfjs/pdf.worker.min.mjs').size > 500 * 1024);
+assert.ok(fs.statSync('vendor/pdfjs/pdf.min.mjs').size < 3 * 1024 * 1024);
+assert.ok(fs.statSync('vendor/pdfjs/pdf.worker.min.mjs').size < 5 * 1024 * 1024);
+assert.ok(!/cdnjs|unpkg|jsdelivr/i.test(pdfContent), 'PDF module must not reference a runtime CDN');
+
+assert.strictEqual(statementPdf.MAX_PDF_BYTES, 10 * 1024 * 1024);
+assert.strictEqual(statementPdf.MAX_PDF_PAGES, 30);
+assert.strictEqual(statementPdf.MAX_PDF_TEXT_ITEMS, 60000);
+assert.strictEqual(statementPdf.MAX_PDF_ROWS, 2000);
+
+console.log('✓ Test 21 Passed: Synthetic fixtures are present and small; local PDF.js assets and Apache license verified.\n');
+
+// -----------------------------------------------------------------------------
+// TEST 22: Date & Time Multi-line PDF Format
+// -----------------------------------------------------------------------------
+console.log('[Test 22] Verifying Date & Time multi-line rows, To/From direction, metadata, and references...');
+
+const dateTimePageOneItems = [
+  pdfItem('Synthetic Student Bank', 50, 805, 100),
+  pdfItem('Opening balance 50,000.00', 50, 780, 160),
+  pdfItem('Date & Time', 50, 770, 75),
+  pdfItem('Transaction Details', 160, 770, 120),
+  pdfItem('Amount', 360, 770, 50),
+  pdfItem('Closing balance', 480, 770, 85),
+  pdfItem('27/10/2026', 50, 748, 60),
+  pdfItem('To UPI/SYNTHETIC CAFE', 160, 748, 140),
+  pdfItem('1,200.00', 340, 748, 55),
+  pdfItem('48,800.00', 460, 748, 60),
+  pdfItem('10:42 AM', 50, 736, 45),
+  pdfItem('UPI ID: synthetic@upi', 160, 724, 120),
+  pdfItem('Txn ID: SYNTH12345', 160, 712, 120),
+  pdfItem('UTR: 123456789012', 160, 700, 120),
+  pdfItem('28-Oct-2026', 50, 676, 60),
+  pdfItem('From SYNTHETIC EMPLOYER', 160, 676, 150),
+  pdfItem('5,000.00', 340, 676, 55),
+  pdfItem('53,800.00', 460, 676, 60),
+  pdfItem('11:15 AM', 50, 664, 45),
+  pdfItem('29/10/2026', 50, 640, 60),
+  pdfItem('To SYNTHETIC METRO', 160, 640, 140),
+  pdfItem('400.00', 340, 640, 55),
+  pdfItem('12:05 PM', 50, 628, 45),
+  pdfItem('30/10/2026', 50, 604, 60),
+  pdfItem('Synthetic unknown transfer', 160, 604, 150),
+  pdfItem('250.00', 340, 604, 55),
+  pdfItem('53,150.00', 460, 604, 60),
+  pdfItem('03:20 PM', 50, 592, 45),
+  pdfItem('Total Debit 1,850.00', 160, 560, 150),
+  pdfItem('Closing balance 55,150.00', 160, 548, 160),
+  pdfItem('Page 1 of 2', 50, 40, 80)
+];
+
+const dateTimePageTwoItems = [
+  pdfItem('Synthetic Student Bank', 50, 805, 100),
+  pdfItem('Date & Time', 50, 770, 75),
+  pdfItem('Transaction Details', 160, 770, 120),
+  pdfItem('Amount', 360, 770, 50),
+  pdfItem('Closing balance', 480, 770, 85),
+  pdfItem('31-Oct-2026', 50, 748, 60),
+  pdfItem('From SYNTHETIC SCHOLARSHIP', 160, 748, 150),
+  pdfItem('2,000.00', 340, 748, 55),
+  pdfItem('55,150.00', 460, 748, 60),
+  pdfItem('09:05 AM', 50, 736, 45),
+  pdfItem('Txn ID: SYNTH67890', 160, 724, 120),
+  pdfItem('Total Debit 1,850.00', 160, 700, 150),
+  pdfItem('Closing balance 55,150.00', 160, 688, 160),
+  pdfItem('Page 2 of 2', 50, 40, 80)
+];
+
+const dateTimeTable = statementPdf.assembleTableFromPages([
+  { pageNumber: 1, items: dateTimePageOneItems },
+  { pageNumber: 2, items: dateTimePageTwoItems }
+]);
+
+assert.strictEqual(dateTimeTable.ok, true, JSON.stringify(dateTimeTable));
+assert.deepStrictEqual(dateTimeTable.headers, [
+  'Date', 'Description', 'Amount', 'Closing Balance', 'Transaction Type', 'Reference'
+]);
+assert.strictEqual(dateTimeTable.rows.length, 6, 'Header plus five transaction rows expected');
+assert.strictEqual(dateTimeTable.rows[1][0], '27/10/2026');
+assert.ok(dateTimeTable.rows[1][1].includes('To UPI/SYNTHETIC CAFE'));
+assert.ok(dateTimeTable.rows[1][1].includes('Time: 10:42 AM'));
+assert.ok(dateTimeTable.rows[1][1].includes('UPI ID: synthetic@upi'));
+assert.ok(dateTimeTable.rows[1][1].includes('Txn ID: SYNTH12345'));
+assert.ok(dateTimeTable.rows[1][1].includes('UTR: 123456789012'));
+assert.strictEqual(dateTimeTable.rows[1][2], '1,200.00');
+assert.strictEqual(dateTimeTable.rows[1][3], '48,800.00');
+assert.strictEqual(dateTimeTable.rows[1][4], 'DR');
+assert.strictEqual(dateTimeTable.rows[1][5], 'SYNTH12345');
+assert.strictEqual(dateTimeTable.rows[2][4], 'CR');
+assert.strictEqual(dateTimeTable.rows[3][3], '', 'Missing closing balance must stay blank');
+assert.strictEqual(dateTimeTable.rows[4][4], '', 'Unknown prefix must remain ambiguous');
+assert.strictEqual(dateTimeTable.rows[5][4], 'CR');
+assert.strictEqual(dateTimeTable.rows[5][5], 'SYNTH67890');
+assert.ok(!dateTimeTable.rows.some(row => /Opening balance|Total Debit|Closing balance 55/i.test(row.join(' '))));
+
+const dateTimeMapping = statementImport.detectColumnMapping(dateTimeTable.headers);
+assert.strictEqual(dateTimeMapping.mapping.date, 0);
+assert.strictEqual(dateTimeMapping.mapping.description, 1);
+assert.strictEqual(dateTimeMapping.mapping.amount, 2);
+assert.strictEqual(dateTimeMapping.mapping.balance, 3);
+assert.strictEqual(dateTimeMapping.mapping.indicator, 4);
+assert.strictEqual(dateTimeMapping.mapping.reference, 5);
+assert.strictEqual(statementImport.getDefaultAmountMode(dateTimeMapping.mapping), 'indicator');
+
+const dateTimeRecords = statementImport.buildRecords({
+  rows: dateTimeTable.rows,
+  rowNumbers: dateTimeTable.rowNumbers,
+  headerRowIndex: 0,
+  mapping: dateTimeMapping.mapping,
+  amountMode: statementImport.getDefaultAmountMode(dateTimeMapping.mapping)
+});
+assert.strictEqual(dateTimeRecords.ok, true);
+assert.strictEqual(dateTimeRecords.records.length, 5);
+assert.strictEqual(dateTimeRecords.counts.valid, 4);
+assert.strictEqual(dateTimeRecords.counts.invalid, 1);
+assert.strictEqual(dateTimeRecords.records[0].type, 'expense');
+assert.strictEqual(dateTimeRecords.records[0].amount, 1200, 'Closing balance must not become the amount');
+assert.strictEqual(dateTimeRecords.records[0].balance, '48,800.00');
+assert.strictEqual(dateTimeRecords.records[1].type, 'income');
+assert.strictEqual(dateTimeRecords.records[1].amount, 5000);
+assert.strictEqual(dateTimeRecords.records[2].type, 'expense');
+assert.strictEqual(dateTimeRecords.records[2].amount, 400);
+assert.strictEqual(dateTimeRecords.records[2].balance, '');
+assert.strictEqual(dateTimeRecords.records[3].valid, false);
+assert.ok(/indicator/i.test(dateTimeRecords.records[3].reason));
+assert.strictEqual(dateTimeRecords.records[4].type, 'income');
+assert.strictEqual(dateTimeRecords.records[4].reference, 'SYNTH67890');
+
+const dateTimeTransaction = statementImport.toCentsibleTransaction(dateTimeRecords.records[0], 'tx-pdf-datetime');
+assert.strictEqual(dateTimeTransaction.payment, 'Bank');
+assert.strictEqual(dateTimeTransaction.importRef, 'SYNTH12345');
+assert.strictEqual(dateTimeTransaction.amount, 1200);
+
+console.log('✓ Test 22 Passed: Date & Time rows, time/metadata, To/From direction, missing balances, and references verified.\n');
+
 console.log('====================================================');
-console.log('   ALL 18 VERIFICATION TEST SUITES PASSED (100%)    ');
+console.log('   ALL 22 VERIFICATION TEST SUITES PASSED (100%)    ');
 console.log('====================================================');

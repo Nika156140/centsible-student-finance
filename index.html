@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Centsible — Make Every Rupee Count</title>
+  <meta name="description" content="Personal financial wellness dashboard for college students in India. Track daily expenses, plan monthly budgets, build savings habits, and gain smart spending insights.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2310b981'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm1.07-7.75l-.9.92C12.45 12.9 12 13.5 12 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 .88-.36 1.68-.93 2.25z'/></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="brand-logo" aria-hidden="true">
+          <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M6 9h12"></path>
+            <path d="M6 13h8"></path>
+            <path d="M9 9v8"></path>
+            <path d="M14 9c0 2-1 4-5 4"></path>
+            <path d="M12 13l4 6"></path>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1 class="brand-title">Centsible</h1>
+          <p class="brand-tagline">Make Every Rupee Count.</p>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <!-- Month Selector -->
+        <div class="month-selector-pill" role="region" aria-label="Month selector">
+          <button id="prevMonthBtn" class="month-nav-btn" aria-label="Previous Month" title="Previous Month">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          </button>
+          <span id="currentMonthDisplay" class="current-month-text" aria-live="polite">October 2026</span>
+          <button id="nextMonthBtn" class="month-nav-btn" aria-label="Next Month" title="Next Month">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <button id="openAddTransactionBtn" class="btn btn-primary" aria-label="Add Transaction">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span>Add Transaction</span>
+        </button>
+
+        <!-- Data menu dropdown -->
+        <div class="dropdown">
+          <button id="dataMenuBtn" class="btn btn-ghost btn-icon" aria-label="Data Options & Settings" title="Data Options">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+          </button>
+          <div id="dataMenuDropdown" class="dropdown-menu hidden" role="menu">
+            <button id="resetDemoDataBtn" class="dropdown-item" role="menuitem">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
+              <span>Reset to Demo Data</span>
+            </button>
+            <button id="exportDataBtn" class="dropdown-item" role="menuitem">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Export Data (JSON)</span>
+            </button>
+            <button id="importDataBtn" class="dropdown-item" role="menuitem">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              <span>Import Data (JSON)</span>
+            </button>
+            <div class="dropdown-divider"></div>
+            <button id="clearAllDataBtn" class="dropdown-item text-danger" role="menuitem">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              <span>Clear All Data</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="app-nav" aria-label="Main Navigation">
+      <div class="nav-tabs" role="tablist">
+        <button id="tab-dashboard" class="nav-tab active" role="tab" aria-selected="true" aria-controls="view-dashboard">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          <span>Dashboard</span>
+        </button>
+        <button id="tab-transactions" class="nav-tab" role="tab" aria-selected="false" aria-controls="view-transactions">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          <span>Transactions</span>
+        </button>
+        <button id="tab-budgets" class="nav-tab" role="tab" aria-selected="false" aria-controls="view-budgets">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"></path><line x1="12" y1="6" x2="12" y2="8"></line><line x1="12" y1="16" x2="12" y2="18"></line></svg>
+          <span>Budgets</span>
+        </button>
+        <button id="tab-savings" class="nav-tab" role="tab" aria-selected="false" aria-controls="view-savings">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2 1.5-5.5-.5-9-1-9z"></path><circle cx="16" cy="9" r="1"></circle></svg>
+          <span>Savings Goals</span>
+        </button>
+        <button id="tab-insights" class="nav-tab" role="tab" aria-selected="false" aria-controls="view-insights">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5.76.76 1.23 1.52 1.41 2.5z"></path></svg>
+          <span>Smart Insights</span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Main Content Views -->
+    <main class="app-main">
+      <!-- VIEW: DASHBOARD -->
+      <section id="view-dashboard" class="tab-view active" role="tabpanel" aria-labelledby="tab-dashboard">
+        <!-- Top Metric Summary Cards -->
+        <div class="metrics-grid">
+          <!-- Monthly Allowance / Income -->
+          <div class="metric-card metric-income">
+            <div class="metric-header">
+              <span class="metric-title">Monthly Allowance / Income</span>
+              <span class="metric-icon-badge badge-green" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+              </span>
+            </div>
+            <div class="metric-value-wrap">
+              <span id="dashIncomeTotal" class="metric-value">₹0</span>
+            </div>
+            <div class="metric-subtext">
+              <span id="dashIncomeBreakdown">₹0 allowance + ₹0 logged</span>
+            </div>
+          </div>
+
+          <!-- Total Monthly Expenses -->
+          <div class="metric-card metric-expense">
+            <div class="metric-header">
+              <span class="metric-title">Total Monthly Expenses</span>
+              <span class="metric-icon-badge badge-red" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline><polyline points="17 18 23 18 23 12"></polyline></svg>
+              </span>
+            </div>
+            <div class="metric-value-wrap">
+              <span id="dashExpenseTotal" class="metric-value">₹0</span>
+            </div>
+            <div class="metric-subtext">
+              <span id="dashExpenseCount">0 transactions recorded</span>
+            </div>
+            <div id="dashExpenseMeter" class="metric-meter" role="progressbar" aria-label="Share of income spent" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="dashExpenseBar" class="metric-meter-fill fill-green" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Remaining Balance / Budget -->
+          <div class="metric-card metric-remaining">
+            <div class="metric-header">
+              <span class="metric-title">Remaining Allowance</span>
+              <span id="dashRemainingBadge" class="status-pill status-healthy">Healthy</span>
+            </div>
+            <div class="metric-value-wrap">
+              <span id="dashRemainingTotal" class="metric-value">₹0</span>
+            </div>
+            <div class="metric-subtext">
+              <span id="dashRemainingPct">100% of income remaining</span>
+            </div>
+            <div id="dashRemainingMeter" class="metric-meter" role="progressbar" aria-label="Remaining allowance" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="dashRemainingBar" class="metric-meter-fill fill-green" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Savings Progress -->
+          <div class="metric-card metric-savings">
+            <div class="metric-header">
+              <span class="metric-title">Active Savings</span>
+              <span class="metric-icon-badge badge-blue" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"></path><path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z"></path></svg>
+              </span>
+            </div>
+            <div class="metric-value-wrap">
+              <span id="dashSavingsTotal" class="metric-value">₹0</span>
+            </div>
+            <div class="metric-subtext">
+              <span id="dashSavingsTarget">Across 0 savings goals</span>
+            </div>
+            <div id="dashSavingsMeter" class="metric-meter" role="progressbar" aria-label="Savings target progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="dashSavingsBar" class="metric-meter-fill fill-purple" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Insight Banner -->
+        <div id="dashInsightBanner" class="insight-banner">
+          <div class="insight-banner-icon" aria-hidden="true">💡</div>
+          <div class="insight-banner-content">
+            <h2 class="insight-banner-title">Smart Spending Pulse</h2>
+            <p id="dashInsightText" class="insight-banner-text">Loading spending pulse...</p>
+          </div>
+          <button id="viewAllInsightsBtn" class="btn btn-outline btn-sm">Explore Insights</button>
+        </div>
+
+        <!-- Two Column Dashboard Grid -->
+        <div class="dashboard-grid">
+          <!-- Left Column: Spending Breakdown Chart -->
+          <div class="card chart-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Monthly Spending by Category</h2>
+                <p class="card-subtitle">Visual breakdown of where your rupees go</p>
+              </div>
+              <span id="chartMonthLabel" class="pill-label">This Month</span>
+            </div>
+            <div class="card-body chart-body">
+              <div class="chart-container">
+                <div class="chart-canvas-wrap">
+                  <svg id="spendingDonutChart" viewBox="0 0 200 200" class="donut-chart" role="img" aria-label="Category spending donut chart">
+                    <!-- SVG circles dynamically inserted here -->
+                  </svg>
+                  <div class="chart-center-text">
+                    <span id="donutCenterAmount" class="center-amount">₹0</span>
+                    <span class="center-label">Spent</span>
+                  </div>
+                </div>
+                <div id="categoryLegend" class="category-legend">
+                  <!-- Category legend rows dynamically inserted here -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Budget Status & Burn Rate -->
+          <div class="card budget-summary-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Budget Health & Burn Rate</h2>
+                <p class="card-subtitle">Real-time tracking of student allowances</p>
+              </div>
+              <button id="manageBudgetsBtn" class="btn btn-ghost btn-sm">Manage</button>
+            </div>
+            <div class="card-body">
+              <!-- Burn rate stat block -->
+              <div class="burn-rate-box">
+                <div class="burn-stat">
+                  <span class="burn-label">Daily Burn Rate</span>
+                  <span id="dashBurnRate" class="burn-val">₹0 / day</span>
+                </div>
+                <div class="burn-stat">
+                  <span class="burn-label">Safe Daily Allowance</span>
+                  <span id="dashSafeDaily" class="burn-val text-brand">₹0 / day</span>
+                </div>
+                <div class="burn-stat">
+                  <span class="burn-label">Month Days Remaining</span>
+                  <span id="dashDaysRemaining" class="burn-val">0 days</span>
+                </div>
+              </div>
+
+              <!-- Top Budget Progress List -->
+              <div class="section-subheading">Category Budget Progress</div>
+              <div id="dashBudgetProgressList" class="mini-budget-list">
+                <!-- Mini budget bars inserted dynamically -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Transactions Section -->
+        <div class="card recent-tx-card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Recent Transactions</h2>
+              <p class="card-subtitle">Latest expenses and income activities</p>
+            </div>
+            <div class="card-actions">
+              <button id="viewAllTxBtn" class="btn btn-ghost btn-sm">View All</button>
+              <button id="quickAddTxBtn" class="btn btn-outline btn-sm">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Add New</span>
+              </button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div id="dashRecentTxContainer" class="tx-table-wrap">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW: TRANSACTIONS -->
+      <section id="view-transactions" class="tab-view" role="tabpanel" aria-labelledby="tab-transactions">
+        <div class="view-header">
+          <div>
+            <h2 class="view-title">Transactions Manager</h2>
+            <p class="view-subtitle">Track, filter, and review all your college income and expenditures</p>
+          </div>
+          <button id="txViewAddBtn" class="btn btn-primary">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Record Transaction</span>
+          </button>
+        </div>
+
+        <!-- Filter & Search Toolbar -->
+        <div class="card toolbar-card">
+          <div class="toolbar-grid">
+            <div class="search-input-wrap">
+              <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="txSearchInput" class="form-input" placeholder="Search by note, category or payment..." aria-label="Search transactions">
+            </div>
+
+            <div class="filter-select-wrap">
+              <label for="txTypeFilter" class="sr-only">Filter by Type</label>
+              <select id="txTypeFilter" class="form-select">
+                <option value="all">All Types (Income & Expenses)</option>
+                <option value="expense">Expenses Only</option>
+                <option value="income">Income / Allowance Only</option>
+              </select>
+            </div>
+
+            <div class="filter-select-wrap">
+              <label for="txCategoryFilter" class="sr-only">Filter by Category</label>
+              <select id="txCategoryFilter" class="form-select">
+                <option value="all">All Categories</option>
+                <optgroup label="Expense Categories">
+                  <option value="Food">Food &amp; Dining</option>
+                  <option value="Travel">Travel &amp; Commute</option>
+                  <option value="Shopping">Shopping</option>
+                  <option value="Education">Education &amp; Books</option>
+                  <option value="Entertainment">Entertainment</option>
+                  <option value="Other">Other Expenses</option>
+                </optgroup>
+                <optgroup label="Income Categories">
+                  <option value="Allowance">Allowance from Parents</option>
+                  <option value="Freelance">Freelance / Internship</option>
+                  <option value="Scholarship">Scholarship / Grant</option>
+                  <option value="Gift">Gift / Pocket Money</option>
+                </optgroup>
+              </select>
+            </div>
+
+            <div class="filter-select-wrap">
+              <label for="txSortOrder" class="sr-only">Sort by</label>
+              <select id="txSortOrder" class="form-select">
+                <option value="date-desc">Newest First</option>
+                <option value="date-asc">Oldest First</option>
+                <option value="amount-desc">Highest Amount</option>
+                <option value="amount-asc">Lowest Amount</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Active filters stats row -->
+          <div class="toolbar-summary">
+            <span id="txFilteredCount">Showing 0 transactions</span>
+            <div class="toolbar-totals">
+              <span class="text-secondary">Expenses: <strong id="txFilteredExpense" class="text-danger">₹0</strong></span>
+              <span class="text-secondary">Income: <strong id="txFilteredIncome" class="text-brand">₹0</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Full Transactions Table -->
+        <div class="card">
+          <div class="card-body p-0">
+            <div id="txFullTableContainer" class="tx-table-wrap">
+              <!-- Dynamically rendered table or empty state -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW: BUDGETS -->
+      <section id="view-budgets" class="tab-view" role="tabpanel" aria-labelledby="tab-budgets">
+        <div class="view-header">
+          <div>
+            <h2 class="view-title">Monthly Budget Planner</h2>
+            <p class="view-subtitle">Set category caps, avoid overspending, and stay on track this month</p>
+          </div>
+          <div class="view-header-actions">
+            <button id="openAllowanceModalBtn" class="btn btn-outline">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+              <span>Set Base Allowance</span>
+            </button>
+            <button id="openAllBudgetsModalBtn" class="btn btn-primary">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+              <span>Edit Category Limits</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Budget Overview Banner -->
+        <div class="card budget-overall-banner">
+          <div class="budget-overall-grid">
+            <div class="budget-overall-info">
+              <span class="budget-overall-label">Total Monthly Budget Cap</span>
+              <span id="budgetTotalCapDisplay" class="budget-overall-value">₹0</span>
+              <p id="budgetOverallDesc" class="budget-overall-desc">Combined budget cap across all 6 categories</p>
+            </div>
+            <div class="budget-overall-progress-wrap">
+              <div class="budget-overall-stats">
+                <span>Spent: <strong id="budgetTotalSpentDisplay">₹0</strong></span>
+                <span>Remaining: <strong id="budgetTotalRemainingDisplay" class="text-brand">₹0</strong></span>
+              </div>
+              <div class="progress-bar-container" role="progressbar" aria-label="Total budget used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div id="budgetOverallProgressBar" class="progress-bar-fill fill-green" style="width: 0%"></div>
+              </div>
+              <div class="budget-status-row">
+                <span id="budgetOverallPctText">0% used</span>
+                <span id="budgetOverallStatusBadge" class="status-pill status-healthy">Within Budget</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Category Budgets Grid -->
+        <div id="budgetsGrid" class="budgets-grid">
+          <!-- Dynamic budget cards inserted here -->
+        </div>
+      </section>
+
+      <!-- VIEW: SAVINGS GOALS -->
+      <section id="view-savings" class="tab-view" role="tabpanel" aria-labelledby="tab-savings">
+        <div class="view-header">
+          <div>
+            <h2 class="view-title">Savings Goals</h2>
+            <p class="view-subtitle">Save for trips, gadgets, semester books, or emergency reserves</p>
+          </div>
+          <button id="openNewGoalModalBtn" class="btn btn-primary">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Create Savings Goal</span>
+          </button>
+        </div>
+
+        <!-- Goals Summary Header -->
+        <div class="savings-summary-bar">
+          <div class="savings-stat-card">
+            <span class="savings-stat-title">Total Saved So Far</span>
+            <span id="savingsTotalAccumulated" class="savings-stat-val text-brand">₹0</span>
+          </div>
+          <div class="savings-stat-card">
+            <span class="savings-stat-title">Total Target Amount</span>
+            <span id="savingsTotalTarget" class="savings-stat-val">₹0</span>
+          </div>
+          <div class="savings-stat-card">
+            <span class="savings-stat-title">Overall Savings Progress</span>
+            <span id="savingsOverallProgress" class="savings-stat-val text-blue">0%</span>
+            <div class="progress-bar-container savings-overall-meter" role="progressbar" aria-label="Overall savings progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="savingsOverallBar" class="progress-bar-fill fill-purple" style="width: 0%"></div>
+            </div>
+            <span id="savingsOverallCaption" class="savings-overall-caption">0 of 0 goals reached</span>
+          </div>
+        </div>
+
+        <!-- Goals Cards Grid -->
+        <div id="goalsCardsGrid" class="goals-grid">
+          <!-- Dynamic goal cards inserted here -->
+        </div>
+      </section>
+
+      <!-- VIEW: SMART INSIGHTS -->
+      <section id="view-insights" class="tab-view" role="tabpanel" aria-labelledby="tab-insights">
+        <div class="view-header">
+          <div>
+            <h2 class="view-title">Smart Financial Insights</h2>
+            <p class="view-subtitle">Transparent rule-based analytics derived from your actual spending</p>
+          </div>
+          <span class="honesty-badge" title="No AI hallucinations or predictive models. Pure transparent arithmetic.">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Rule-Based &amp; 100% Data-Driven</span>
+          </span>
+        </div>
+
+        <!-- Disclaimer Banner -->
+        <div class="info-alert">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          <div>
+            <strong>Transparent Student Insights:</strong> All metrics below are calculated directly from your recorded transactions and category budgets. These tips provide general student financial guidance and do not replace professional advice.
+          </div>
+        </div>
+
+        <!-- Insights Grid -->
+        <div class="insights-container">
+          <!-- Financial Health Score Card -->
+          <div class="card insight-card">
+            <div class="insight-card-header">
+              <div class="insight-type-icon icon-health" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+              </div>
+              <div>
+                <h3 class="insight-card-title">Monthly Financial Health Status</h3>
+                <span id="insightHealthDate" class="text-secondary text-sm">October 2026 Analysis</span>
+              </div>
+            </div>
+            <div class="insight-card-body">
+              <div class="health-score-row">
+                <div id="insightHealthBadge" class="health-badge badge-green">Healthy</div>
+                <div class="health-desc-wrap">
+                  <h4 id="insightHealthSummary" class="health-title">Surplus allowance under control</h4>
+                  <p id="insightHealthDetail" class="health-detail">Calculating health metrics...</p>
+                </div>
+              </div>
+              <div class="health-meter-wrap">
+                <div class="health-meter-labels">
+                  <span>Monthly funds used</span>
+                  <span id="insightSpendPct">0%</span>
+                </div>
+                <div class="progress-bar-container" role="progressbar" aria-label="Monthly income used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                  <div id="insightHealthBar" class="progress-bar-fill fill-green" style="width: 0%"></div>
+                </div>
+                <p id="insightHealthMeterNote" class="health-meter-note">No spending recorded yet.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Top Spending Categories Breakdown -->
+          <div class="card insight-card">
+            <div class="insight-card-header">
+              <div class="insight-type-icon icon-top" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+              </div>
+              <div>
+                <h3 class="insight-card-title">Top Expense Drivers</h3>
+                <span class="text-secondary text-sm">Where your money is concentrated</span>
+              </div>
+            </div>
+            <div class="insight-card-body">
+              <div id="insightTopCategoriesList" class="top-categories-list">
+                <!-- Dynamically generated top category bars -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Budget Alerts & Overrun Warnings -->
+          <div class="card insight-card">
+            <div class="insight-card-header">
+              <div class="insight-type-icon icon-alert" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              </div>
+              <div>
+                <h3 class="insight-card-title">Budget Overrun &amp; Warning Flags</h3>
+                <span class="text-secondary text-sm">Real-time alerts for at-risk categories</span>
+              </div>
+            </div>
+            <div class="insight-card-body">
+              <div id="insightAlertsList" class="alerts-list">
+                <!-- Dynamically generated alerts -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Daily Spending & Runway Projection -->
+          <div class="card insight-card">
+            <div class="insight-card-header">
+              <div class="insight-type-icon icon-runway" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              </div>
+              <div>
+                <h3 class="insight-card-title">Daily Burn &amp; Month-End Runway</h3>
+                <span class="text-secondary text-sm">Pacing your remaining days safely</span>
+              </div>
+            </div>
+            <div class="insight-card-body">
+              <div id="insightRunwayContainer" class="runway-metrics-wrap">
+                <!-- Dynamically generated runway calculations -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Actionable College Savings Recommendations -->
+          <div class="card insight-card full-width">
+            <div class="insight-card-header">
+              <div class="insight-type-icon icon-tips" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>
+              </div>
+              <div>
+                <h3 class="insight-card-title">Actionable Student Savings Opportunities</h3>
+                <p class="text-secondary text-sm">Practical steps to cut waste and boost savings based on your habits</p>
+              </div>
+            </div>
+            <div class="insight-card-body">
+              <div id="insightTipsGrid" class="tips-grid">
+                <!-- Dynamically generated student actionable tips -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-content">
+        <p><strong>Centsible</strong> &mdash; Make Every Rupee Count &bull; Solo Hackathon Project</p>
+        <p class="footer-subtext">Built with HTML5, CSS3, &amp; Vanilla JS &bull; 100% Local Storage &bull; No Bank Credentials Required</p>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ==================== MODALS ==================== -->
+
+  <!-- Modal 1: Add / Edit Transaction Modal -->
+  <div id="transactionModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="txModalTitle">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="txModalTitle" class="modal-title">Record Transaction</h3>
+        <button id="closeTxModalBtn" class="modal-close-btn" aria-label="Close dialog">&times;</button>
+      </div>
+      <form id="transactionForm" novalidate>
+        <input type="hidden" id="txIdInput" value="">
+        <div class="modal-body">
+          <!-- Type Toggle: Expense or Income -->
+          <div class="form-group">
+            <label class="form-label">Transaction Type</label>
+            <div class="type-segmented-control" role="radiogroup" aria-label="Transaction Type">
+              <label class="type-option">
+                <input type="radio" name="txType" value="expense" checked>
+                <span class="type-badge badge-expense">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline></svg>
+                  Expense
+                </span>
+              </label>
+              <label class="type-option">
+                <input type="radio" name="txType" value="income">
+                <span class="type-badge badge-income">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline></svg>
+                  Income / Allowance
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Amount & Date -->
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="txAmountInput" class="form-label">Amount (₹) <span class="required">*</span></label>
+              <div class="input-prefix-wrap">
+                <span class="input-prefix">₹</span>
+                <input type="number" id="txAmountInput" class="form-input" min="1" step="any" inputmode="decimal" placeholder="e.g. 250" aria-describedby="txAmountError" required>
+              </div>
+              <span id="txAmountError" class="field-error hidden">Please enter a valid amount greater than ₹0</span>
+            </div>
+
+            <div class="form-group flex-1">
+              <label for="txDateInput" class="form-label">Date <span class="required">*</span></label>
+              <input type="date" id="txDateInput" class="form-input" aria-describedby="txDateError" required>
+              <span id="txDateError" class="field-error hidden">Please select a valid date</span>
+            </div>
+          </div>
+
+          <!-- Category & Payment Method -->
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="txCategorySelect" class="form-label">Category <span class="required">*</span></label>
+              <select id="txCategorySelect" class="form-select" aria-describedby="txCategoryError" required>
+                <!-- Dynamically populated or swapped based on type -->
+              </select>
+              <span id="txCategoryError" class="field-error hidden">Please choose a category</span>
+            </div>
+
+            <div class="form-group flex-1">
+              <label for="txPaymentSelect" class="form-label">Payment Mode</label>
+              <select id="txPaymentSelect" class="form-select">
+                <option value="UPI">UPI (GPay / PhonePe / Paytm)</option>
+                <option value="Cash">Cash</option>
+                <option value="Card">Debit / Credit Card</option>
+                <option value="NetBanking">Net Banking</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Description / Notes -->
+          <div class="form-group">
+            <label for="txDescInput" class="form-label">Description / Note <span class="required">*</span></label>
+            <input type="text" id="txDescInput" class="form-input" placeholder="e.g. Canteen lunch with friends, Metro pass, Books" maxlength="80" aria-describedby="txDescError" required>
+            <span id="txDescError" class="field-error hidden">Please enter a short description</span>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="cancelTxModalBtn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" id="saveTxBtn" class="btn btn-primary">Save Transaction</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 2: Edit Category Budgets Modal -->
+  <div id="budgetsModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="budgetsModalTitle">
+    <div class="modal-dialog modal-md">
+      <div class="modal-header">
+        <h3 id="budgetsModalTitle" class="modal-title">Edit Monthly Category Budgets</h3>
+        <button id="closeBudgetsModalBtn" class="modal-close-btn" aria-label="Close dialog">&times;</button>
+      </div>
+      <form id="budgetsForm" novalidate>
+        <div class="modal-body">
+          <p class="modal-intro-text">Set your maximum planned expenditure for each category for this month. We will alert you whenever your expenses approach or cross these thresholds.</p>
+          <div id="categoryBudgetsInputs" class="budget-inputs-list">
+            <!-- Dynamic category limit inputs inserted here -->
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="cancelBudgetsModalBtn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save All Budgets</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 3: Base Allowance Setting Modal -->
+  <div id="allowanceModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="allowanceModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h3 id="allowanceModalTitle" class="modal-title">Set Monthly Allowance</h3>
+        <button id="closeAllowanceModalBtn" class="modal-close-btn" aria-label="Close dialog">&times;</button>
+      </div>
+      <form id="allowanceForm" novalidate>
+        <div class="modal-body">
+          <p class="modal-intro-text">Specify your recurring monthly student allowance received from parents, scholarship, or stipend.</p>
+          <div class="form-group">
+            <label for="baseAllowanceInput" class="form-label">Base Monthly Allowance (₹)</label>
+            <div class="input-prefix-wrap">
+              <span class="input-prefix">₹</span>
+              <input type="number" id="baseAllowanceInput" class="form-input" min="0" step="100" inputmode="decimal" placeholder="e.g. 12000" aria-describedby="allowanceError" required>
+            </div>
+            <span id="allowanceError" class="field-error hidden">Please enter a valid amount (₹0 or greater)</span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="cancelAllowanceModalBtn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Update Allowance</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 4: Add / Edit Savings Goal Modal -->
+  <div id="goalModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="goalModalTitle">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="goalModalTitle" class="modal-title">Create Savings Goal</h3>
+        <button id="closeGoalModalBtn" class="modal-close-btn" aria-label="Close dialog">&times;</button>
+      </div>
+      <form id="goalForm" novalidate>
+        <input type="hidden" id="goalIdInput" value="">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="goalNameInput" class="form-label">Goal Name <span class="required">*</span></label>
+            <input type="text" id="goalNameInput" class="form-input" placeholder="e.g. Goa Trip, New Headphones, Laptop Fund" maxlength="60" aria-describedby="goalNameError" required>
+            <span id="goalNameError" class="field-error hidden">Please enter a goal title</span>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="goalTargetInput" class="form-label">Target Amount (₹) <span class="required">*</span></label>
+              <div class="input-prefix-wrap">
+                <span class="input-prefix">₹</span>
+                <input type="number" id="goalTargetInput" class="form-input" min="1" step="any" inputmode="decimal" placeholder="e.g. 10000" aria-describedby="goalTargetError" required>
+              </div>
+              <span id="goalTargetError" class="field-error hidden">Target must be greater than ₹0</span>
+            </div>
+
+            <div class="form-group flex-1">
+              <label for="goalCurrentInput" class="form-label">Initial Saved (₹)</label>
+              <div class="input-prefix-wrap">
+                <span class="input-prefix">₹</span>
+                <input type="number" id="goalCurrentInput" class="form-input" min="0" step="any" inputmode="decimal" placeholder="e.g. 2000" value="0" aria-describedby="goalCurrentError">
+              </div>
+              <span id="goalCurrentError" class="field-error hidden">Cannot be negative</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="goalTargetDateInput" class="form-label">Target Completion Date (Optional)</label>
+            <input type="date" id="goalTargetDateInput" class="form-input">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="cancelGoalModalBtn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Goal</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 5: Deposit / Withdraw Funds from Goal Modal -->
+  <div id="fundGoalModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="fundGoalModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h3 id="fundGoalModalTitle" class="modal-title">Update Goal Funds</h3>
+        <button id="closeFundGoalModalBtn" class="modal-close-btn" aria-label="Close dialog">&times;</button>
+      </div>
+      <form id="fundGoalForm" novalidate>
+        <input type="hidden" id="fundGoalIdInput" value="">
+        <div class="modal-body">
+          <p id="fundGoalPrompt" class="modal-intro-text">Update amount saved for goal.</p>
+          <div class="form-group">
+            <label class="form-label">Action</label>
+            <div class="type-segmented-control" role="radiogroup" aria-label="Action Type">
+              <label class="type-option">
+                <input type="radio" name="fundActionType" value="deposit" checked>
+                <span class="type-badge badge-income">+ Deposit</span>
+              </label>
+              <label class="type-option">
+                <input type="radio" name="fundActionType" value="withdraw">
+                <span class="type-badge badge-expense">- Withdraw</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="fundAmountInput" class="form-label">Amount (₹) <span class="required">*</span></label>
+            <div class="input-prefix-wrap">
+              <span class="input-prefix">₹</span>
+              <input type="number" id="fundAmountInput" class="form-input" min="1" step="any" inputmode="decimal" placeholder="e.g. 500" aria-describedby="fundAmountError" required>
+            </div>
+            <div class="quick-preset-chips" role="group" aria-label="Quick amount presets">
+              <button type="button" class="preset-chip" data-preset="100">+₹100</button>
+              <button type="button" class="preset-chip" data-preset="250">+₹250</button>
+              <button type="button" class="preset-chip" data-preset="500">+₹500</button>
+              <button type="button" class="preset-chip" data-preset="1000">+₹1,000</button>
+            </div>
+            <span id="fundAmountError" class="field-error hidden">Please enter a valid amount greater than ₹0</span>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="cancelFundGoalModalBtn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Update Funds</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 6: Confirmation Dialog Modal (for deletes, resets) -->
+  <div id="confirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h3 id="confirmModalTitle" class="modal-title">Confirm Action</h3>
+        <button id="closeConfirmModalBtn" class="modal-close-btn" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmModalMessage" class="modal-intro-text">Are you sure you want to proceed?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="confirmCancelBtn" class="btn btn-ghost">Cancel</button>
+        <button type="button" id="confirmOkBtn" class="btn btn-danger">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 7: Import / Export Modal -->
+  <div id="backupModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="backupModalTitle">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="backupModalTitle" class="modal-title">Import &amp; Export Data</h3>
+        <button id="closeBackupModalBtn" class="modal-close-btn" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="backup-section">
+          <h4 class="backup-section-title">Export Your Centsible Data</h4>
+          <p class="text-secondary text-sm">Download your entire financial history, budgets, and goals as a JSON file backup.</p>
+          <button id="downloadJsonBtn" class="btn btn-outline btn-sm">Download Backup JSON</button>
+        </div>
+
+        <div class="dropdown-divider my-4"></div>
+
+        <div class="backup-section">
+          <h4 class="backup-section-title">Import Existing Backup</h4>
+          <p class="text-secondary text-sm">Upload a previously saved Centsible JSON file to restore your transactions and settings.</p>
+          <input type="file" id="importFileInput" accept=".json,application/json" class="form-input">
+          <span id="importFileError" class="field-error hidden">Invalid JSON file structure</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="closeBackupBtn" class="btn btn-ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

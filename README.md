@@ -52,28 +52,60 @@ Hacktoberfest/
 
 ## 5. How to Run Locally on Windows 11
 
-### Option 1: Direct File Opening (No Installation Needed)
+Centsible is a static web application. You do not need Node.js packages, a database, or a build step to run the app.
 
-1. Open File Explorer to `C:\Users\User\Hacktoberfest`.
-2. Double-click `index.html` to open it in Microsoft Edge, Google Chrome, or any modern web browser.
+**Recommended: Run with Python's local HTTP server**
 
-### Option 2: VS Code Live Server
-1. Open the project folder in VS Code (`File` > `Open Folder...` > `C:\Users\User\Hacktoberfest`).
+This method supports both CSV and text-based PDF statement imports.
 
-1. Open File Explorer to `C:\Users\YOUR_USERNAME\Hacktoberfest`.
-2. Double-click `index.html` to open it in Microsoft Edge, Google Chrome, or any modern web browser.
+**Prerequisites:** Git and Python 3. If you already have the repository downloaded, skip the cloning commands.
 
-### Option 2: VS Code Live Server
-1. Open the project folder in VS Code (`File` > `Open Folder...` > `C:\Users\YOUR-USERNAME\Hacktoberfest`).
+1. Open PowerShell.
+2. Clone the PDF-support branch:
 
-2. If installed, right-click `index.html` in the explorer pane and select **Open with Live Server**.
+   ```powershell
+   git clone -b round2-pdf-support https://github.com/Nika156140/centsible-student-finance.git
+   cd centsible-student-finance
+   ```
 
-### Option 3: Python Built-In HTTP Server
-Open PowerShell in the project directory:
-```powershell
-python -m http.server 8000
-```
-Open your browser and navigate to `http://localhost:8000`.
+   If you already have the project, open PowerShell in the folder containing `index.html` instead.
+
+3. Start the server:
+
+   ```powershell
+   py -m http.server 8000
+   ```
+
+   If the `py` command is unavailable but Python is installed, use:
+
+   ```powershell
+   python -m http.server 8000
+   ```
+
+4. Open this address in your browser:
+
+   **http://localhost:8000**
+
+Keep the PowerShell window open while using Centsible. To stop the server, return to that window and press `Ctrl+C`.
+
+### Alternative: VS Code Live Server
+
+1. Open the Centsible project folder in VS Code.
+2. Install the **Live Server** extension if it is not already installed.
+3. In the Explorer pane, right-click `index.html` and select **Open with Live Server**.
+4. Open the local HTTP address displayed by the extension.
+
+Live Server provides HTTP hosting for the application, which is required for PDF module and worker loading.
+
+### Limited option: Open index.html directly
+
+You can double-click `index.html` in File Explorer to open Centsible without starting a server. Basic application functionality and CSV import can work in this mode, but **PDF statement import is not supported through direct `file://` opening**.
+
+Use the Python server or VS Code Live Server when importing text-based PDF statements.
+
+### Privacy and limitations
+
+CSV and supported text-based PDF statements are processed locally in your browser. The app does not require uploading your statements to an external parsing service. Scanned/image-only and password-protected PDFs are not supported.
 
 ---
 

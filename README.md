@@ -53,11 +53,11 @@ Hacktoberfest/
 ## 5. How to Run Locally on Windows 11
 
 ### Option 1: Direct File Opening (No Installation Needed)
-1. Open File Explorer to `C:\Users\Dhruv S\Hacktoberfest`.
+1. Open File Explorer to `C:\Users\User\Hacktoberfest`.
 2. Double-click `index.html` to open it in Microsoft Edge, Google Chrome, or any modern web browser.
 
 ### Option 2: VS Code Live Server
-1. Open the project folder in VS Code (`File` > `Open Folder...` > `C:\Users\Dhruv S\Hacktoberfest`).
+1. Open the project folder in VS Code (`File` > `Open Folder...` > `C:\Users\User\Hacktoberfest`).
 2. If installed, right-click `index.html` in the explorer pane and select **Open with Live Server**.
 
 ### Option 3: Python Built-In HTTP Server

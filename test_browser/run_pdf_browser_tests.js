@@ -7,6 +7,7 @@ const { startStaticServer, launchBrowser } = require('./harness');
 const TESTS = [
   { key: 'extraction', name: 'PDF extraction', file: './tests/pdf_extraction.js' },
   { key: 'app', name: 'PDF app workflow', file: './tests/pdf_app_workflow.js' },
+  { key: 'transactions', name: 'Transaction history filters', file: './tests/transaction_history.js' },
   { key: 'mobile', name: 'PDF mobile layout', file: './tests/pdf_mobile.js' },
   { key: 'file', name: 'File-protocol CSV/PDF behavior', file: './tests/pdf_file_protocol.js' }
 ];

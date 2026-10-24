@@ -210,6 +210,7 @@
   // Filtering & Sorting State for Transactions View
   let txFilters = {
     search: '',
+    month: 'all',
     type: 'all',
     category: 'all',
     sort: 'date-desc'
@@ -364,6 +365,20 @@
   function getMonthKey(year, monthIndex) {
     const mm = String(monthIndex + 1).padStart(2, '0');
     return `${year}-${mm}`;
+  }
+
+  function formatMonthKey(monthKey) {
+    const match = /^(\d{4})-(\d{2})$/.exec(monthKey || '');
+    if (!match) return monthKey || '';
+    const monthIndex = Number(match[2]) - 1;
+    if (!MONTH_NAMES[monthIndex]) return monthKey;
+    return `${MONTH_NAMES[monthIndex]} ${match[1]}`;
+  }
+
+  // Transactions-tab filtering is independent of the dashboard's active month.
+  function getTransactionViewTransactions() {
+    if (txFilters.month === 'all') return state.transactions.slice();
+    return state.transactions.filter(t => t.date && t.date.slice(0, 7) === txFilters.month);
   }
 
   // Presentation-only progress meter helper
@@ -859,7 +874,28 @@
 
     if (!container) return;
 
-    let list = getActiveMonthTransactions();
+    const monthSelectEl = document.getElementById('txMonthFilter');
+    const availableMonths = [...new Set(
+      state.transactions
+        .map(t => (t.date && /^\d{4}-\d{2}/.test(t.date)) ? t.date.slice(0, 7) : null)
+        .filter(Boolean)
+    )].sort((a, b) => b.localeCompare(a));
+
+    if (txFilters.month !== 'all' && !availableMonths.includes(txFilters.month)) {
+      txFilters.month = 'all';
+    }
+
+    if (monthSelectEl) {
+      monthSelectEl.innerHTML = [
+        '<option value="all">All time</option>',
+        ...availableMonths.map(monthKey => (
+          `<option value="${monthKey}">${escapeHtml(formatMonthKey(monthKey))}</option>`
+        ))
+      ].join('');
+      monthSelectEl.value = txFilters.month;
+    }
+
+    let list = getTransactionViewTransactions();
 
     // 1. Search Filter
     if (txFilters.search.trim()) {
@@ -905,7 +941,9 @@
     });
 
     if (filteredCountEl) {
-      filteredCountEl.textContent = `Showing ${list.length} transactions for ${MONTH_NAMES[activeMonth]} ${activeYear}`;
+      filteredCountEl.textContent = txFilters.month === 'all'
+        ? `Showing ${list.length} transactions across all time`
+        : `Showing ${list.length} transactions for ${formatMonthKey(txFilters.month)}`;
     }
     if (filteredExpenseEl) filteredExpenseEl.textContent = formatINR(filteredExpense);
     if (filteredIncomeEl) filteredIncomeEl.textContent = formatINR(filteredIncome);
@@ -3334,6 +3372,14 @@
       });
     }
 
+    const monthFilter = document.getElementById('txMonthFilter');
+    if (monthFilter) {
+      monthFilter.addEventListener('change', (e) => {
+        txFilters.month = e.target.value;
+        renderTransactionsView();
+      });
+    }
+
     const typeFilter = document.getElementById('txTypeFilter');
     if (typeFilter) {
       typeFilter.addEventListener('change', (e) => {
@@ -3363,15 +3409,18 @@
   function resetTxFilters() {
     txFilters = {
       search: '',
+      month: 'all',
       type: 'all',
       category: 'all',
       sort: 'date-desc'
     };
     const sInp = document.getElementById('txSearchInput');
+    const mSel = document.getElementById('txMonthFilter');
     const tSel = document.getElementById('txTypeFilter');
     const cSel = document.getElementById('txCategoryFilter');
     const oSel = document.getElementById('txSortOrder');
     if (sInp) sInp.value = '';
+    if (mSel) mSel.value = 'all';
     if (tSel) tSel.value = 'all';
     if (cSel) cSel.value = 'all';
     if (oSel) oSel.value = 'date-desc';

@@ -42,7 +42,13 @@ node test_pdf_file_protocol.js
 ```
 
 Each starts its own browser/server session. Prefer the full runner for one
-browser session covering all four groups.
+browser session covering all five groups.
+
+To run only the transaction history group:
+
+```powershell
+node test_browser/run_pdf_browser_tests.js --only=transactions
+```
 
 ## Test groups
 
@@ -53,8 +59,11 @@ browser session covering all four groups.
 2. `pdf_app_workflow.js` — full import workflow, category edits, totals,
    Date & Time multi-line To/From classification, duplicate re-import,
    cancellation, persistence, limits, error cases, and CSV regression.
-3. `pdf_mobile.js` — 390px modal and preview layout smoke test.
-4. `pdf_file_protocol.js` — CSV works under `file://`; PDF explains the local
+3. `transaction_history.js` — All time and per-month transaction views,
+   newest-first sorting, search/category/type filters, and manually added plus
+   CSV/PDF-imported transactions across months.
+4. `pdf_mobile.js` — 390px modal and preview layout smoke test.
+5. `pdf_file_protocol.js` — CSV works under `file://`; PDF explains the local
    HTTP requirement without changing data.
 
 ## Notes
